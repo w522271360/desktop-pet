@@ -15,6 +15,46 @@ contextBridge.exposeInMainWorld('electronAPI', {
   quitApp: () => {
     ipcRenderer.send('quit-app');
   },
+
+  restartApp: () => {
+    ipcRenderer.send('restart-app');
+  },
+
+  dragPetWindow: (position) => {
+    ipcRenderer.send('drag-pet-window', position);
+  },
+
+  logPetInteraction: (interaction) => {
+    ipcRenderer.send('pet-interaction-event', interaction);
+  },
+
+  getReminders: async () => {
+    return await ipcRenderer.invoke('get-reminders');
+  },
+
+  saveReminder: async (reminder) => {
+    return await ipcRenderer.invoke('save-reminder', { reminder });
+  },
+
+  deleteReminder: async (id) => {
+    return await ipcRenderer.invoke('delete-reminder', { id });
+  },
+
+  acknowledgeReminder: async (id) => {
+    return await ipcRenderer.invoke('acknowledge-reminder', { id });
+  },
+
+  onReminderDue: (callback) => {
+    ipcRenderer.on('reminder-due', (event, payload) => callback(payload));
+  },
+
+  onReminderCleared: (callback) => {
+    ipcRenderer.on('reminder-cleared', () => callback());
+  },
+
+  onRemindersChanged: (callback) => {
+    ipcRenderer.on('reminders-changed', () => callback());
+  },
   
   // AI 对话
   sendMessage: async (messages) => {
@@ -30,9 +70,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
   captureScreen: async () => {
     return await ipcRenderer.invoke('capture-screen');
   },
+
+  selectScreenshotRegion: async () => {
+    return await ipcRenderer.invoke('select-screenshot-region');
+  },
+
+  onScreenshotSelectionData: (callback) => {
+    ipcRenderer.on('screenshot-selection-data', (event, data) => callback(data));
+  },
+
+  finishScreenshotSelection: (rect) => {
+    ipcRenderer.send('screenshot-selection-finished', rect);
+  },
+
+  cancelScreenshotSelection: () => {
+    ipcRenderer.send('screenshot-selection-cancelled');
+  },
   
   analyzeScreenshot: async (base64Image) => {
     return await ipcRenderer.invoke('analyze-screenshot', { base64Image });
+  },
+
+  analyzeImage: async (base64Image, prompt, mimeType) => {
+    return await ipcRenderer.invoke('analyze-image', { base64Image, prompt, mimeType });
+  },
+
+  generateImage: async (prompt, base64Image, mimeType) => {
+    return await ipcRenderer.invoke('generate-image', { prompt, base64Image, mimeType });
+  },
+
+  copyGeneratedImage: async (image) => {
+    return await ipcRenderer.invoke('copy-generated-image', { image });
+  },
+
+  saveGeneratedImage: async (image) => {
+    return await ipcRenderer.invoke('save-generated-image', { image });
   },
   
   // API 配置管理
@@ -62,6 +134,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   setActiveConfig: async (id) => {
     return await ipcRenderer.invoke('set-active-config', { id });
+  },
+
+  onApiConfigsChanged: (callback) => {
+    ipcRenderer.on('api-configs-changed', () => callback());
   },
   
   testApiConfig: async (apiConfig) => {
@@ -211,23 +287,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 重置所有 Key
   resetAllProxyKeys: async () => {
     return await ipcRenderer.invoke('reset-all-proxy-keys');
-  },
-  
-  // ========== 网络代理配置 ==========
-  
-  // 获取网络代理配置
-  getNetworkProxy: async () => {
-    return await ipcRenderer.invoke('get-network-proxy');
-  },
-  
-  // 设置网络代理配置
-  setNetworkProxy: async (proxyConfig) => {
-    return await ipcRenderer.invoke('set-network-proxy', proxyConfig);
-  },
-  
-  // 测试网络代理
-  testNetworkProxy: async (proxyConfig) => {
-    return await ipcRenderer.invoke('test-network-proxy', proxyConfig);
   },
   
   // ========== 宠物相关 API ==========

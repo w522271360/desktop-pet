@@ -7,6 +7,8 @@ let editingConfigId = null;
 let mcpServers = [];
 let editingMcpServerId = null;
 let connectedServers = [];
+let reminders = [];
+let editingReminderId = null;
 
 // DOM元素 - 导航
 const navItems = document.querySelectorAll('.nav-item');
@@ -15,6 +17,19 @@ const tabContents = document.querySelectorAll('.tab-content');
 // DOM元素 - API配置
 const configsContainer = document.getElementById('configs-container');
 const addConfigBtn = document.getElementById('add-config-btn');
+
+// DOM元素 - 提醒事项
+const remindersContainer = document.getElementById('reminders-container');
+const addReminderBtn = document.getElementById('add-reminder-btn');
+const reminderModal = document.getElementById('reminder-modal');
+const reminderModalTitle = document.getElementById('reminder-modal-title');
+const closeReminderModalBtn = document.getElementById('close-reminder-modal-btn');
+const reminderTitleInput = document.getElementById('reminder-title-input');
+const reminderNoteInput = document.getElementById('reminder-note-input');
+const reminderTimeInput = document.getElementById('reminder-time-input');
+const reminderEnabledInput = document.getElementById('reminder-enabled-input');
+const cancelReminderBtn = document.getElementById('cancel-reminder-btn');
+const saveReminderBtn = document.getElementById('save-reminder-btn');
 
 // DOM元素 - 通用设置
 const alwaysOnTopCheckbox = document.getElementById('always-on-top');
@@ -37,6 +52,8 @@ const autoOpenChatCheckbox = document.getElementById('auto-open-chat');
 const saveHistoryCheckbox = document.getElementById('save-history');
 const markdownPathInput = document.getElementById('markdown-path');
 const changePathBtn = document.getElementById('change-path-btn');
+const assistantNicknameInput = document.getElementById('assistant-nickname');
+const userDisplayNameInput = document.getElementById('user-display-name');
 
 // DOM元素 - 其他
 const closeBtn = document.getElementById('close-btn');
@@ -85,11 +102,9 @@ navItems.forEach(item => {
 async function initialize() {
   appConfig = await window.electronAPI.getConfig();
   await loadConfigs();
+  await loadReminders();
   await loadSettings();
-  await loadMcpServers();
-  await loadProxyConfig();
   bindEvents();
-  bindMcpEvents();
   bindProxyEvents();
 }
 
@@ -163,6 +178,88 @@ function createConfigCard(config, isActive) {
   return card;
 }
 
+async function loadReminders() {
+  if (!remindersContainer) return;
+  reminders = await window.electronAPI.getReminders();
+  renderReminders();
+}
+
+function formatReminderDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '时间无效';
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function toDateTimeLocalValue(value) {
+  const date = value ? new Date(value) : new Date(Date.now() + 5 * 60 * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function renderReminders() {
+  if (!remindersContainer) return;
+  remindersContainer.innerHTML = '';
+
+  if (reminders.length === 0) {
+    remindersContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⏰</div>
+        <h3>还没有提醒</h3>
+        <p>添加一个提醒，到点后宠物会用气泡叫你。</p>
+      </div>
+    `;
+    return;
+  }
+
+  reminders.forEach(reminder => {
+    remindersContainer.appendChild(createReminderCard(reminder));
+  });
+}
+
+function createReminderCard(reminder) {
+  const isAcknowledged = reminder.status === 'acknowledged';
+  const isDue = !isAcknowledged && new Date(reminder.scheduledAt).getTime() <= Date.now();
+  const card = document.createElement('div');
+  card.className = `reminder-card ${reminder.enabled ? '' : 'disabled'} ${isDue ? 'due' : ''}`;
+  card.innerHTML = `
+    <div class="reminder-card-main">
+      <div class="reminder-card-title">
+        <span>${escapeHtml(reminder.title)}</span>
+        ${isDue ? '<span class="card-badge active">待确认</span>' : ''}
+        ${isAcknowledged ? '<span class="card-badge disabled">已确认</span>' : ''}
+        ${!reminder.enabled ? '<span class="card-badge disabled">已停用</span>' : ''}
+      </div>
+      ${reminder.note ? `<div class="reminder-card-note">${escapeHtml(reminder.note)}</div>` : ''}
+      <div class="reminder-card-time">${formatReminderDateTime(reminder.scheduledAt)}</div>
+    </div>
+    <div class="reminder-card-actions">
+      <label class="switch" title="启用提醒">
+        <input type="checkbox" class="reminder-toggle" data-id="${reminder.id}" ${reminder.enabled ? 'checked' : ''}>
+        <span class="slider"></span>
+      </label>
+      <button class="icon-btn reminder-edit-btn" data-id="${reminder.id}" title="编辑">✏️</button>
+      <button class="icon-btn reminder-delete-btn" data-id="${reminder.id}" title="删除">🗑️</button>
+    </div>
+  `;
+  return card;
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 // 加载其他设置
 async function loadSettings() {
   const alwaysOnTop = await window.electronAPI.storeGet('alwaysOnTop') || false;
@@ -210,8 +307,18 @@ async function loadChatSettings() {
   if (saveHistoryCheckbox) {
     saveHistoryCheckbox.checked = saveHistory !== false; // 默认开启
   }
+
+  const assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
+  if (assistantNicknameInput) {
+    assistantNicknameInput.value = assistantNickname;
+  }
+
+  const userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '';
+  if (userDisplayNameInput) {
+    userDisplayNameInput.value = userDisplayName;
+  }
   
-  // 加载 Markdown 保存路径
+  // 加载工作目录（沿用旧存储键以兼容已有配置）
   const markdownPath = await window.electronAPI.storeGet('markdownPath') || '';
   if (markdownPathInput) {
     markdownPathInput.value = markdownPath;
@@ -266,6 +373,49 @@ function bindEvents() {
   // 添加配置
   addConfigBtn.addEventListener('click', () => {
     openModal();
+  });
+
+  addReminderBtn?.addEventListener('click', () => {
+    openReminderModal();
+  });
+
+  closeReminderModalBtn?.addEventListener('click', closeReminderModal);
+  cancelReminderBtn?.addEventListener('click', closeReminderModal);
+  document.querySelector('.reminder-modal-overlay')?.addEventListener('click', closeReminderModal);
+
+  saveReminderBtn?.addEventListener('click', saveCurrentReminder);
+
+  remindersContainer?.addEventListener('click', async (event) => {
+    const target = event.target.closest('button');
+    if (!target) return;
+    const reminderId = target.dataset.id;
+    if (!reminderId) return;
+
+    if (target.classList.contains('reminder-edit-btn')) {
+      const reminder = reminders.find(item => item.id === reminderId);
+      if (reminder) openReminderModal(reminder);
+    } else if (target.classList.contains('reminder-delete-btn')) {
+      await deleteReminder(reminderId);
+    }
+  });
+
+  remindersContainer?.addEventListener('change', async (event) => {
+    const target = event.target;
+    if (!target.classList.contains('reminder-toggle')) return;
+    const reminder = reminders.find(item => item.id === target.dataset.id);
+    if (!reminder) return;
+
+    const result = await window.electronAPI.saveReminder({
+      ...reminder,
+      enabled: target.checked
+    });
+    if (result.success) {
+      await loadReminders();
+      showToast(target.checked ? '✅ 提醒已启用' : '⏹️ 提醒已停用', 'success');
+    } else {
+      target.checked = reminder.enabled;
+      showToast(`❌ ${result.error}`, 'error');
+    }
   });
   
   // 关闭按钮
@@ -335,14 +485,28 @@ function bindEvents() {
     await window.electronAPI.storeSet('saveHistory', saveHistoryCheckbox.checked);
     showToast(saveHistoryCheckbox.checked ? '✅ 对话历史将会自动保存' : '⏹️ 对话历史自动保存已关闭', 'success');
   });
+
+  assistantNicknameInput?.addEventListener('change', async () => {
+    const nickname = assistantNicknameInput.value.trim() || '小秘书';
+    assistantNicknameInput.value = nickname;
+    await window.electronAPI.storeSet('assistantNickname', nickname);
+    showToast(`✅ 助手昵称已更新为「${nickname}」`, 'success');
+  });
+
+  userDisplayNameInput?.addEventListener('change', async () => {
+    const displayName = userDisplayNameInput.value.trim();
+    userDisplayNameInput.value = displayName;
+    await window.electronAPI.storeSet('userDisplayName', displayName);
+    showToast(displayName ? `✅ 助手会称呼你为「${displayName}」` : '✅ 已恢复默认称呼「你」', 'success');
+  });
   
-  // 选择 Markdown 保存路径
+  // 选择工作目录
   changePathBtn?.addEventListener('click', async () => {
     const result = await window.electronAPI.selectDirectory();
     if (result.success) {
       markdownPathInput.value = result.path;
       await window.electronAPI.storeSet('markdownPath', result.path);
-      showToast('📁 保存路径已更新！', 'success');
+      showToast('📁 工作目录已设置，可以开始使用啦！', 'success');
     }
   });
   
@@ -420,6 +584,69 @@ function bindEvents() {
       await deleteConfig(configId);
     }
   });
+
+  window.electronAPI.onRemindersChanged?.(loadReminders);
+}
+
+function openReminderModal(reminder = null) {
+  editingReminderId = reminder?.id || null;
+  reminderModalTitle.textContent = reminder ? '编辑提醒' : '添加提醒';
+  reminderTitleInput.value = reminder?.title || '';
+  reminderNoteInput.value = reminder?.note || '';
+  reminderTimeInput.value = toDateTimeLocalValue(reminder?.scheduledAt);
+  reminderEnabledInput.checked = reminder?.enabled !== false;
+  reminderModal.classList.remove('hidden');
+  reminderTitleInput.focus();
+}
+
+function closeReminderModal() {
+  reminderModal?.classList.add('hidden');
+  editingReminderId = null;
+}
+
+async function saveCurrentReminder() {
+  const title = reminderTitleInput.value.trim();
+  const scheduledAtValue = reminderTimeInput.value;
+
+  if (!title || !scheduledAtValue) {
+    showToast('📝 请填写提醒标题和时间', 'info');
+    return;
+  }
+
+  const existing = reminders.find(reminder => reminder.id === editingReminderId);
+  const scheduledAt = new Date(scheduledAtValue).toISOString();
+  const reminder = {
+    ...(existing || {}),
+    id: editingReminderId || undefined,
+    title,
+    note: reminderNoteInput.value.trim(),
+    scheduledAt,
+    enabled: reminderEnabledInput.checked,
+    status: existing?.scheduledAt !== scheduledAt || existing?.status === 'acknowledged'
+      ? 'scheduled'
+      : existing?.status
+  };
+
+  const result = await window.electronAPI.saveReminder(reminder);
+  if (!result.success) {
+    showToast(`❌ ${result.error}`, 'error');
+    return;
+  }
+
+  await loadReminders();
+  closeReminderModal();
+  showToast('✅ 提醒已保存，到点会让宠物发气泡', 'success');
+}
+
+async function deleteReminder(id) {
+  if (!confirm('确定要删除这个提醒吗？')) return;
+  const result = await window.electronAPI.deleteReminder(id);
+  if (result.success) {
+    await loadReminders();
+    showToast('✅ 提醒已删除', 'success');
+  } else {
+    showToast('❌ 删除失败，提醒可能已经不存在', 'error');
+  }
 }
 
 // 打开模态框
@@ -429,49 +656,22 @@ function openModal(config = null) {
   if (config) {
     modalTitle.textContent = '编辑配置';
     configNameInput.value = config.name;
-    providerTypeSelect.value = config.provider || config.providerType;
+    providerTypeSelect.value = config.provider || config.providerType || 'custom';
     apiUrlInput.value = config.apiUrl;
     apiKeyInput.value = config.apiKey;
+    modelSelect.value = config.selectedModel || '';
     enabledCheckbox.checked = config.enabled !== false;
-    
-    onProviderTypeChange();
-    
-    // 尝试在下拉列表中找到对应的模型
-    const modelExists = Array.from(modelSelect.options).some(opt => opt.value === config.selectedModel);
-    
-    if (modelExists) {
-      // 模型在列表中，直接选择
-      modelSelect.value = config.selectedModel;
-    } else {
-      // 模型不在列表中，使用手动输入
-      // 找到手动输入选项
-      const customInputOption = Array.from(modelSelect.options).find(opt => opt.dataset.customInput === 'true');
-      if (customInputOption) {
-        modelSelect.value = customInputOption.value;
-        if (customModelInput) {
-          customModelInput.value = config.selectedModel || '';
-        }
-      } else {
-        // 如果没有手动输入选项，直接设置值（虽然可能不在列表中）
-        modelSelect.value = config.selectedModel;
-      }
-    }
-    
-    onModelChange();
   } else {
     modalTitle.textContent = '添加配置';
     configNameInput.value = '';
-    providerTypeSelect.value = '';
+    providerTypeSelect.value = 'custom';
     apiUrlInput.value = '';
     apiKeyInput.value = '';
-    modelSelect.innerHTML = '<option value="">请先选择提供商类型</option>';
-    modelSelect.style.display = '';
+    modelSelect.value = '';
     enabledCheckbox.checked = true;
-    modelInfo.classList.remove('show');
-    customModelGroup?.classList.add('hidden');
-    if (customModelInput) customModelInput.value = '';
   }
   
+  modelInfo.classList.remove('show');
   testResult.classList.add('hidden');
   modal.classList.remove('hidden');
 }
@@ -484,6 +684,7 @@ function closeModal() {
 
 // 提供商类型变化
 function onProviderTypeChange() {
+  if (modelSelect?.tagName === 'INPUT') return;
   const provider = providerTypeSelect.value;
   
   if (!provider) {
@@ -529,6 +730,10 @@ function onProviderTypeChange() {
 
 // 模型选择变化
 function onModelChange() {
+  if (modelSelect?.tagName === 'INPUT') {
+    modelInfo.classList.remove('show');
+    return;
+  }
   const provider = providerTypeSelect.value;
   const template = appConfig.providerTemplates[provider];
   const modelId = modelSelect.value;
@@ -578,6 +783,9 @@ function onModelChange() {
 
 // 获取当前选择的模型 ID
 function getSelectedModel() {
+  if (modelSelect?.tagName === 'INPUT') {
+    return modelSelect.value.trim() || null;
+  }
   const modelId = modelSelect.value;
   
   // 检查是否选择了"手动输入"选项
@@ -599,14 +807,14 @@ function getSelectedModel() {
 async function testCurrentConfig() {
   const selectedModel = getSelectedModel();
   const config = {
-    provider: providerTypeSelect.value,
+    provider: providerTypeSelect.value || 'custom',
     apiUrl: apiUrlInput.value.trim(),
     apiKey: apiKeyInput.value.trim(),
     selectedModel: selectedModel
   };
   
   // 检查是否选择了手动输入但没填写
-  const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+  const selectedOption = modelSelect.options?.[modelSelect.selectedIndex];
   const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
   
   if (!config.provider || !config.apiUrl || !config.apiKey) {
@@ -654,7 +862,7 @@ async function saveCurrentConfig() {
   const selectedModel = getSelectedModel();
   const config = {
     name: configNameInput.value.trim(),
-    provider: providerTypeSelect.value,
+    provider: providerTypeSelect.value || 'custom',
     apiUrl: apiUrlInput.value.trim(),
     apiKey: apiKeyInput.value.trim(),
     selectedModel: selectedModel,
@@ -662,7 +870,7 @@ async function saveCurrentConfig() {
   };
   
   // 检查是否选择了手动输入但没填写
-  const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+  const selectedOption = modelSelect.options?.[modelSelect.selectedIndex];
   const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
   
   if (!config.name || !config.provider || !config.apiUrl || !config.apiKey) {
@@ -1169,29 +1377,12 @@ const addGeminiKeyBtn = document.getElementById('add-gemini-key');
 const allGeminiKeysList = document.getElementById('all-gemini-keys-list');
 const manualGeminiKeysList = document.getElementById('manual-gemini-keys-list');
 
-// 网络代理 DOM 元素
-const networkProxyEnabledCheckbox = document.getElementById('network-proxy-enabled');
-const proxyHostInput = document.getElementById('proxy-host');
-const proxyPortNetworkInput = document.getElementById('proxy-port-network');
-const testNetworkProxyBtn = document.getElementById('test-network-proxy-btn');
-const saveNetworkProxyBtn = document.getElementById('save-network-proxy-btn');
-const proxyTestResult = document.getElementById('proxy-test-result');
-const proxyConfigDetails = document.getElementById('proxy-config-details');
-
 // 中转站配置
 let proxyConfig = {
   enabled: false,
   port: 3001,
   geminiKeys: [],
   autoSyncApiConfigs: true
-};
-
-// 网络代理配置
-let networkProxyConfig = {
-  enabled: false,
-  host: '127.0.0.1',
-  port: 7890,
-  type: 'http'
 };
 
 // 所有 Gemini Keys（包括 API 配置中同步的）
@@ -1214,43 +1405,9 @@ async function loadProxyConfig() {
     proxyPortInput.value = proxyConfig.port || 3001;
   }
   
-  // 加载网络代理配置
-  await loadNetworkProxyConfig();
-  
   renderAllGeminiKeys();
   renderManualGeminiKeys();
   await updateProxyStatus();
-}
-
-// 加载网络代理配置
-async function loadNetworkProxyConfig() {
-  try {
-    networkProxyConfig = await window.electronAPI.getNetworkProxy();
-    
-    if (networkProxyEnabledCheckbox) {
-      networkProxyEnabledCheckbox.checked = networkProxyConfig.enabled;
-    }
-    
-    if (proxyHostInput) {
-      proxyHostInput.value = networkProxyConfig.host || '127.0.0.1';
-    }
-    
-    if (proxyPortNetworkInput) {
-      proxyPortNetworkInput.value = networkProxyConfig.port || 7890;
-    }
-    
-    // 根据启用状态显示/隐藏详情
-    updateProxyConfigVisibility();
-  } catch (error) {
-    console.error('加载网络代理配置失败:', error);
-  }
-}
-
-// 更新代理配置详情的可见性
-function updateProxyConfigVisibility() {
-  if (proxyConfigDetails) {
-    proxyConfigDetails.style.opacity = networkProxyEnabledCheckbox?.checked ? '1' : '0.6';
-  }
 }
 
 // 状态刷新定时器
@@ -1762,81 +1919,6 @@ function bindProxyEvents() {
     });
   });
   
-  // ========== 网络代理配置事件 ==========
-  
-  // 启用/禁用网络代理
-  networkProxyEnabledCheckbox?.addEventListener('change', () => {
-    updateProxyConfigVisibility();
-  });
-  
-  // 测试网络代理
-  testNetworkProxyBtn?.addEventListener('click', async () => {
-    const host = proxyHostInput?.value || '127.0.0.1';
-    const port = parseInt(proxyPortNetworkInput?.value || '7890');
-    
-    // 显示测试中状态
-    showProxyTestResult('loading', '⏳ 正在测试代理连接...');
-    testNetworkProxyBtn.disabled = true;
-    
-    try {
-      const result = await window.electronAPI.testNetworkProxy({
-        enabled: true,
-        host,
-        port,
-        type: 'http'
-      });
-      
-      if (result.success) {
-        showProxyTestResult('success', `✅ ${result.message}`);
-      } else {
-        showProxyTestResult('error', `❌ ${result.error}`);
-      }
-    } catch (error) {
-      showProxyTestResult('error', `❌ 测试失败：${error.message}`);
-    } finally {
-      testNetworkProxyBtn.disabled = false;
-    }
-  });
-  
-  // 保存网络代理配置
-  saveNetworkProxyBtn?.addEventListener('click', async () => {
-    const enabled = networkProxyEnabledCheckbox?.checked || false;
-    const host = proxyHostInput?.value || '127.0.0.1';
-    const port = parseInt(proxyPortNetworkInput?.value || '7890');
-    
-    try {
-      const result = await window.electronAPI.setNetworkProxy({
-        enabled,
-        host,
-        port,
-        type: 'http'
-      });
-      
-      if (result.success) {
-        networkProxyConfig = { enabled, host, port, type: 'http' };
-        showToast(`✅ 代理配置已保存！${enabled ? '立即生效' : '已禁用代理'}`, 'success');
-        hideProxyTestResult();
-      }
-    } catch (error) {
-      showToast(`❌ 保存失败：${error.message}`, 'error');
-    }
-  });
-}
-
-// 显示代理测试结果
-function showProxyTestResult(type, message) {
-  if (!proxyTestResult) return;
-  
-  proxyTestResult.className = `proxy-test-result ${type}`;
-  proxyTestResult.textContent = message;
-  proxyTestResult.classList.remove('hidden');
-}
-
-// 隐藏代理测试结果
-function hideProxyTestResult() {
-  if (proxyTestResult) {
-    proxyTestResult.classList.add('hidden');
-  }
 }
 
 // 初始化应用

@@ -539,6 +539,91 @@ input:checked + .slider:before {
   transform: translateY(-2px);
 }
 
+.empty-state {
+  padding: 42px 24px;
+  border: 2px dashed #FFE0B2;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  color: #8a6a3a;
+}
+
+.empty-icon {
+  font-size: 34px;
+  margin-bottom: 12px;
+}
+
+.empty-state h3 {
+  margin-bottom: 8px;
+  color: #FF9800;
+}
+
+.reminders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reminder-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 2px solid #FFE0B2;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 20px rgba(255, 152, 0, 0.1);
+}
+
+.reminder-card.due {
+  border-color: #FF9800;
+  box-shadow: 0 8px 26px rgba(255, 152, 0, 0.18);
+}
+
+.reminder-card.disabled {
+  opacity: 0.68;
+}
+
+.reminder-card-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.reminder-card-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #333;
+}
+
+.reminder-card-note {
+  margin-bottom: 8px;
+  color: #666;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reminder-card-time {
+  color: #FF9800;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reminder-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reminder-enabled-row {
+  margin-top: 4px;
+}
+
 /* 关于页面 */
 .about-content {
   max-width: 700px;
@@ -1938,15 +2023,6 @@ textarea::-webkit-scrollbar-thumb:hover {
   border-bottom: none;
 }
 
-/* ========== 网络代理配置样式 ========== */
-.proxy-config-details {
-  background: rgba(255, 248, 240, 0.8);
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 12px;
-  border: 1px solid #FFE0B2;
-}
-
 .setting-item.inline {
   display: flex;
   align-items: center;
@@ -1965,85 +2041,6 @@ textarea::-webkit-scrollbar-thumb:hover {
 .setting-item.inline .setting-input {
   flex: 1;
   max-width: 200px;
-}
-
-.proxy-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 16px;
-  margin-bottom: 12px;
-}
-
-.proxy-test-result {
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-top: 12px;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.proxy-test-result.success {
-  background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
-  color: #2E7D32;
-  border: 1px solid #A5D6A7;
-}
-
-.proxy-test-result.error {
-  background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
-  color: #C62828;
-  border: 1px solid #EF9A9A;
-}
-
-.proxy-test-result.loading {
-  background: linear-gradient(135deg, #FFF8E1 0%, #FFE082 100%);
-  color: #F57F17;
-  border: 1px solid #FFD54F;
-}
-
-.proxy-hint {
-  background: rgba(255, 152, 0, 0.08);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-top: 16px;
-  font-size: 12px;
-  color: #666;
-}
-
-.proxy-hint p {
-  margin: 0 0 8px 0;
-}
-
-.proxy-hint ul {
-  margin: 0 0 8px 0;
-  padding-left: 20px;
-}
-
-.proxy-hint li {
-  margin-bottom: 4px;
-}
-
-.proxy-hint code {
-  background: rgba(255, 152, 0, 0.15);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  color: #E65100;
-}
-
-.proxy-hint .warning {
-  color: #E65100;
-  font-weight: 500;
-  margin-top: 8px;
-  margin-bottom: 0;
-}
-
-.proxy-hint .success {
-  color: #2E7D32;
-  font-weight: 500;
-  margin-top: 8px;
-  margin-bottom: 0;
 }
 
 /* 特性列表 */
@@ -2067,6 +2064,10 @@ textarea::-webkit-scrollbar-thumb:hover {
   font-size: 14px;
   width: 100px;
   transition: all 0.3s ease;
+}
+
+.setting-input.text-input {
+  width: 260px;
 }
 
 .setting-input:focus {
@@ -2709,48 +2710,6 @@ body.dark-mode .mcp-hint {
   color: #C0C0D0;
 }
 
-/* 网络代理 - 暗色模式 */
-body.dark-mode .proxy-config-details {
-  background: rgba(30, 30, 50, 0.8);
-  border-color: #2D3A5A;
-}
-
-body.dark-mode .proxy-hint {
-  background: rgba(45, 58, 90, 0.5);
-  color: #A0A0B0;
-}
-
-body.dark-mode .proxy-hint code {
-  background: rgba(255, 152, 0, 0.2);
-  color: #FFB74D;
-}
-
-body.dark-mode .proxy-hint .warning {
-  color: #FFB74D;
-}
-
-body.dark-mode .proxy-hint .success {
-  color: #81C784;
-}
-
-body.dark-mode .proxy-test-result.success {
-  background: linear-gradient(135deg, #1B3D1B 0%, #2E5A2E 100%);
-  color: #81C784;
-  border-color: #4CAF50;
-}
-
-body.dark-mode .proxy-test-result.error {
-  background: linear-gradient(135deg, #3D1B1B 0%, #5A2E2E 100%);
-  color: #EF9A9A;
-  border-color: #E57373;
-}
-
-body.dark-mode .proxy-test-result.loading {
-  background: linear-gradient(135deg, #3D3A1B 0%, #5A522E 100%);
-  color: #FFD54F;
-  border-color: #FFC107;
-}
-
 body.dark-mode .key-item {
   background: linear-gradient(135deg, #1E1E32 0%, #252540 100%);
   border-color: #2D3A5A;
@@ -3075,6 +3034,28 @@ body.dark-mode .empty-state {
 
 body.dark-mode .empty-state p {
   color: #808090;
+}
+
+body.dark-mode .reminder-card {
+  background: rgba(30, 30, 50, 0.95);
+  border-color: #2D3A5A;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .reminder-card.due {
+  border-color: #FF9800;
+}
+
+body.dark-mode .reminder-card-title {
+  color: #E4E4E7;
+}
+
+body.dark-mode .reminder-card-note {
+  color: #A0A0B0;
+}
+
+body.dark-mode .reminder-card-time {
+  color: #FFB74D;
 }
 
 body.dark-mode .checkbox-group {

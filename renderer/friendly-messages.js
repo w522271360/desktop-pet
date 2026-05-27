@@ -53,7 +53,7 @@ const FriendlyMessages = {
   }),
   
   screenshotCapturing: {
-    text: '📸 柴柴正在截屏~ 对话窗口会暂时隐藏哦！',
+    text: '📸 拖拽选择截图范围，选好后会放到输入区',
     type: 'info'
   },
   
@@ -111,8 +111,8 @@ const FriendlyMessages = {
     type: 'info'
   },
   
-  saveSuccess: (filename) => ({
-    text: `✅ 保存成功！\n\n文件名：${filename}\n\n下次想回顾就去 Markdown 目录看看吧~ 📝`,
+  saveSuccess: (filename, directory) => ({
+    text: `✅ 保存成功！\n\n文件名：${filename}\n保存位置：${directory}\n\n下次想回顾就去这个目录看看吧~ 📝`,
     type: 'success'
   }),
   
@@ -155,7 +155,7 @@ const FriendlyMessages = {
   // ============ 欢迎和帮助 ============
   
   welcome: {
-    text: '🐕 你好呀！我是柴柴 AI 助手~\n\n我能做什么？\n• 💬 聊天对话\n• 📸 分析截图\n• 🛠️ 调用 MCP 工具\n• 💾 保存记录\n\n快捷键：Ctrl+Enter 发送\n\n问我点什么吧！',
+    text: '主人 你好呀！我是你的私人小秘书~\n\n问我点什么吧！',
     type: 'success'
   },
   
@@ -256,4 +256,3 @@ window.FriendlyMessages = FriendlyMessages;
 window.getFriendlyMessage = getFriendlyMessage;
 window.formatApiError = formatApiError;
 window.generateVisionSuggestions = generateVisionSuggestions;
-

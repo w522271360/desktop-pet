@@ -1,21 +1,17 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, screen, dialog, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const config = require('./config');
 const store = require('./store');
 const apiService = require('./api-service');
 const mcpClient = require('./mcp-client');
 const proxyServer = require('./proxy-server');
-
-// 加载用户配置的网络代理
-const networkProxy = store.getNetworkProxy();
-if (networkProxy && networkProxy.enabled) {
-  const proxyUrl = `http://${networkProxy.host}:${networkProxy.port}`;
-  app.commandLine.appendSwitch('proxy-server', proxyUrl);
-  console.log(`🌐 已加载用户代理配置: ${proxyUrl}`);
-} else {
-  console.log('🌐 未配置代理，使用直连模式');
-}
+const { notifyApiConfigsChanged } = require('./config-change-notifier');
+const { getImageExtension } = require('./generated-image-export');
+const { resolveConversationSavePath } = require('./conversation-save-path');
+const { hasConfiguredWorkDirectory, workDirectoryRequiredError } = require('./work-directory');
+const { createReminderManager } = require('./reminder-manager');
 
 // 启用 Web Speech API 所需的实验性功能
 app.commandLine.appendSwitch('enable-speech-dispatcher');
@@ -24,6 +20,18 @@ app.commandLine.appendSwitch('enable-experimental-web-platform-features');
 let petWindow = null;
 let chatWindow = null;
 let settingsWindow = null;
+let screenshotSelectorWindow = null;
+let reminderCheckTimer = null;
+let activeReminderId = null;
+const reminderManager = createReminderManager(store);
+
+function ensureWorkDirectoryConfigured() {
+  if (hasConfiguredWorkDirectory(store.get('markdownPath', ''))) {
+    return null;
+  }
+
+  return { success: false, error: workDirectoryRequiredError() };
+}
 
 // 格式化运行时间
 function formatUptime(seconds) {
@@ -48,16 +56,96 @@ function getAppIcon() {
 
 // 宠物大小配置（放在顶部方便引用）
 const petSizeConfig = {
-  small: { width: 180, height: 180 },
-  medium: { width: 230, height: 230 },
-  large: { width: 280, height: 280 }
+  small: { width: 238, height: 105 },
+  medium: { width: 262, height: 132 },
+  large: { width: 288, height: 163 }
 };
+
+function getPetWindowSize(size = store.get('petSize', 'medium'), expanded = false) {
+  const compact = petSizeConfig[size] || petSizeConfig.medium;
+  if (!expanded) return compact;
+
+  return {
+    width: Math.max(compact.width, 330),
+    height: compact.height + 118
+  };
+}
+
+function resizePetWindowForReminder(expanded) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+
+  const petSize = store.get('petSize', 'medium');
+  const nextSize = getPetWindowSize(petSize, expanded);
+  const bounds = petWindow.getBounds();
+  const anchorY = bounds.y + bounds.height;
+
+  petWindow.setBounds({
+    x: bounds.x,
+    y: Math.round(anchorY - nextSize.height),
+    width: nextSize.width,
+    height: nextSize.height
+  });
+}
+
+function serializeReminder(reminder) {
+  if (!reminder) return null;
+  return {
+    id: reminder.id,
+    title: reminder.title,
+    note: reminder.note || '',
+    scheduledAt: reminder.scheduledAt,
+    enabled: reminder.enabled !== false,
+    status: reminder.status || 'scheduled',
+    acknowledgedAt: reminder.acknowledgedAt || null,
+    createdAt: reminder.createdAt,
+    updatedAt: reminder.updatedAt
+  };
+}
+
+function broadcastReminderListChanged() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('reminders-changed');
+  }
+}
+
+function sendActiveReminderToPet() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+
+  const dueReminders = reminderManager.getDueReminders(new Date());
+  if (dueReminders.length === 0) {
+    activeReminderId = null;
+    resizePetWindowForReminder(false);
+    petWindow.webContents.send('reminder-cleared');
+    return;
+  }
+
+  const activeReminder = dueReminders.find(reminder => reminder.id === activeReminderId) || dueReminders[0];
+  activeReminderId = activeReminder.id;
+  reminderManager.markReminderDue(activeReminder.id);
+  resizePetWindowForReminder(true);
+  petWindow.webContents.send('reminder-due', {
+    reminder: serializeReminder(activeReminder),
+    queueCount: Math.max(0, dueReminders.length - 1)
+  });
+}
+
+function startReminderScheduler() {
+  if (reminderCheckTimer) return;
+  sendActiveReminderToPet();
+  reminderCheckTimer = setInterval(sendActiveReminderToPet, 30 * 1000);
+}
+
+function stopReminderScheduler() {
+  if (!reminderCheckTimer) return;
+  clearInterval(reminderCheckTimer);
+  reminderCheckTimer = null;
+}
 
 // 创建透明悬浮宠物窗口
 function createPetWindow() {
   const alwaysOnTop = store.get('alwaysOnTop', false);
   const petSize = store.get('petSize', 'medium');
-  const sizeConfig = petSizeConfig[petSize] || petSizeConfig.medium;
+  const sizeConfig = getPetWindowSize(petSize, false);
   const appIcon = getAppIcon();
   
   const options = {
@@ -65,7 +153,7 @@ function createPetWindow() {
     height: sizeConfig.height,
     transparent: true,
     frame: false,
-    alwaysOnTop: alwaysOnTop,
+    alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
     skipTaskbar: true,
     webPreferences: {
@@ -80,18 +168,35 @@ function createPetWindow() {
   }
   
   petWindow = new BrowserWindow(options);
+  if (process.argv.includes('--dev')) {
+    petWindow.setFocusable(true);
+    petWindow.setAlwaysOnTop(true, 'screen-saver');
+    petWindow.webContents.on('console-message', (event, level, message) => {
+      console.log('[pet-console]', message);
+    });
+    petWindow.webContents.on('before-input-event', (event, input) => {
+      console.log('[pet-input]', input.type, input.key || input.code || '');
+    });
+  }
 
   // 定位到屏幕右下角
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const x = width - sizeConfig.width - 20; // 距离右边缘20px
   const y = height - sizeConfig.height - 20; // 距离底部20px
   petWindow.setPosition(x, y);
+  if (process.argv.includes('--dev')) {
+    console.log('[pet] window-bounds', petWindow.getBounds());
+  }
 
   petWindow.loadFile('renderer/pet.html');
   
   if (process.argv.includes('--dev')) {
     petWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  petWindow.webContents.once('did-finish-load', () => {
+    sendActiveReminderToPet();
+  });
 
   petWindow.on('closed', () => {
     petWindow = null;
@@ -124,7 +229,7 @@ function createChatWindow() {
     frame: true,
     alwaysOnTop: false,
     resizable: true,
-    title: 'Yuns桌面助手 - 智能对话',
+    title: '私人小秘书',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -198,7 +303,10 @@ function createSettingsWindow() {
 // 保存对话为Markdown
 async function saveConversationAsMarkdown(conversation) {
   try {
-    const savePath = config.markdown.savePath;
+    const savePath = resolveConversationSavePath(
+      store.get('markdownPath', ''),
+      app.getPath('documents')
+    );
     if (!fs.existsSync(savePath)) {
       fs.mkdirSync(savePath, { recursive: true });
     }
@@ -225,7 +333,8 @@ async function saveConversationAsMarkdown(conversation) {
     return {
       success: true,
       path: fullPath,
-      filename: filename
+      filename: filename,
+      directory: savePath
     };
   } catch (error) {
     console.error('保存Markdown失败:', error);
@@ -236,49 +345,41 @@ async function saveConversationAsMarkdown(conversation) {
   }
 }
 
-// 截取屏幕（自动隐藏对话窗口和设置窗口）
-async function captureScreen() {
-  try {
-    // 记录窗口状态
-    const chatWasVisible = chatWindow && chatWindow.isVisible();
-    const settingsWasVisible = settingsWindow && settingsWindow.isVisible();
-    
-    // 隐藏对话窗口和设置窗口
-    if (chatWindow && chatWasVisible) {
-      chatWindow.hide();
-    }
-    if (settingsWindow && settingsWasVisible) {
-      settingsWindow.hide();
-    }
-    
-    // 等待窗口完全隐藏（200ms延迟确保视觉效果）
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    // 截取屏幕
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: 1920, height: 1080 }
-    });
+async function getGeneratedImageBytes(image) {
+  if (image.base64) {
+    return {
+      bytes: Buffer.from(image.base64, 'base64'),
+      mimeType: image.mimeType || 'image/png'
+    };
+  }
 
-    let result;
-    if (sources.length > 0) {
-      const screenshot = sources[0].thumbnail.toPNG();
-      const base64 = screenshot.toString('base64');
-      
-      result = {
-        success: true,
-        data: base64
-      };
-    } else {
-      result = {
-        success: false,
-        error: '无法获取屏幕'
-      };
-    }
-    
-    // 恢复窗口显示（再等待100ms，让截图操作完全完成）
+  const response = await axios.get(image.url, {
+    responseType: 'arraybuffer',
+    timeout: 60000
+  });
+  return {
+    bytes: Buffer.from(response.data),
+    mimeType: response.headers['content-type']?.split(';')[0] || 'image/png'
+  };
+}
+
+async function withAppWindowsHidden(task) {
+  const chatWasVisible = chatWindow && chatWindow.isVisible();
+  const settingsWasVisible = settingsWindow && settingsWindow.isVisible();
+
+  if (chatWindow && chatWasVisible) {
+    chatWindow.hide();
+  }
+  if (settingsWindow && settingsWasVisible) {
+    settingsWindow.hide();
+  }
+
+  try {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    return await task();
+  } finally {
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     if (chatWindow && chatWasVisible) {
       chatWindow.show();
       chatWindow.focus();
@@ -287,19 +388,150 @@ async function captureScreen() {
       settingsWindow.show();
       settingsWindow.focus();
     }
-    
-    return result;
+  }
+}
+
+async function capturePrimaryScreen() {
+  const display = screen.getPrimaryDisplay();
+  const scaleFactor = display.scaleFactor || 1;
+  const thumbnailSize = {
+    width: Math.round(display.size.width * scaleFactor),
+    height: Math.round(display.size.height * scaleFactor)
+  };
+
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize
+  });
+
+  if (sources.length === 0) {
+    return { success: false, error: '无法获取屏幕' };
+  }
+
+  const screenshot = sources[0].thumbnail.toPNG();
+  return {
+    success: true,
+    data: screenshot.toString('base64'),
+    imageSize: sources[0].thumbnail.getSize(),
+    displayBounds: display.bounds
+  };
+}
+
+// 截取屏幕（自动隐藏对话窗口和设置窗口）
+async function captureScreen() {
+  try {
+    return await withAppWindowsHidden(capturePrimaryScreen);
   } catch (error) {
     console.error('截屏失败:', error);
-    
-    // 发生错误时也要恢复窗口显示
-    if (chatWindow && !chatWindow.isVisible()) {
-      chatWindow.show();
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+async function selectScreenshotRegion() {
+  try {
+    const captured = await withAppWindowsHidden(capturePrimaryScreen);
+    if (!captured.success) return captured;
+
+    const display = screen.getPrimaryDisplay();
+    const { width, height } = display.bounds;
+    const imageSize = captured.imageSize;
+
+    const selection = await new Promise((resolve) => {
+      if (screenshotSelectorWindow && !screenshotSelectorWindow.isDestroyed()) {
+        screenshotSelectorWindow.close();
+      }
+
+      screenshotSelectorWindow = new BrowserWindow({
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width,
+        height,
+        frame: false,
+        transparent: false,
+        resizable: false,
+        movable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        fullscreenable: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          preload: path.join(__dirname, 'preload.js')
+        }
+      });
+
+      const cleanup = () => {
+        ipcMain.removeListener('screenshot-selection-finished', finishHandler);
+        ipcMain.removeListener('screenshot-selection-cancelled', cancelHandler);
+        if (screenshotSelectorWindow && !screenshotSelectorWindow.isDestroyed()) {
+          screenshotSelectorWindow.close();
+        }
+        screenshotSelectorWindow = null;
+      };
+
+      const finishHandler = (event, rect) => {
+        if (!screenshotSelectorWindow || event.sender !== screenshotSelectorWindow.webContents) return;
+        cleanup();
+        resolve({ canceled: false, rect });
+      };
+
+      const cancelHandler = (event) => {
+        if (!screenshotSelectorWindow || event.sender !== screenshotSelectorWindow.webContents) return;
+        cleanup();
+        resolve({ canceled: true });
+      };
+
+      ipcMain.on('screenshot-selection-finished', finishHandler);
+      ipcMain.on('screenshot-selection-cancelled', cancelHandler);
+
+      screenshotSelectorWindow.on('closed', () => {
+        ipcMain.removeListener('screenshot-selection-finished', finishHandler);
+        ipcMain.removeListener('screenshot-selection-cancelled', cancelHandler);
+        screenshotSelectorWindow = null;
+        resolve({ canceled: true });
+      });
+
+      screenshotSelectorWindow.loadFile('renderer/screenshot-selector.html');
+      screenshotSelectorWindow.webContents.once('did-finish-load', () => {
+        screenshotSelectorWindow.webContents.send('screenshot-selection-data', {
+          image: captured.data,
+          imageSize,
+          viewportSize: { width, height }
+        });
+      });
+    });
+
+    if (selection.canceled) {
+      return { success: false, canceled: true };
     }
-    if (settingsWindow && !settingsWindow.isVisible()) {
-      settingsWindow.show();
+
+    const rect = selection.rect;
+    if (!rect || rect.width < 2 || rect.height < 2) {
+      return { success: false, canceled: true };
     }
-    
+
+    const scaleX = imageSize.width / width;
+    const scaleY = imageSize.height / height;
+    const cropRect = {
+      x: Math.max(0, Math.round(rect.x * scaleX)),
+      y: Math.max(0, Math.round(rect.y * scaleY)),
+      width: Math.max(1, Math.round(rect.width * scaleX)),
+      height: Math.max(1, Math.round(rect.height * scaleY))
+    };
+
+    const image = nativeImage.createFromBuffer(Buffer.from(captured.data, 'base64'));
+    const cropped = image.crop(cropRect).toPNG();
+    return {
+      success: true,
+      data: cropped.toString('base64'),
+      mimeType: 'image/png',
+      rect: cropRect
+    };
+  } catch (error) {
+    console.error('区域截图失败:', error);
     return {
       success: false,
       error: error.message
@@ -320,7 +552,63 @@ ipcMain.on('quit-app', () => {
   app.quit();
 });
 
+ipcMain.on('restart-app', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
+ipcMain.on('drag-pet-window', (event, { screenX, screenY, offsetX, offsetY }) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  petWindow.setPosition(Math.round(screenX - offsetX), Math.round(screenY - offsetY));
+});
+
+ipcMain.on('pet-interaction-event', (event, interaction) => {
+  if (process.argv.includes('--dev')) {
+    console.log('[pet]', interaction);
+  }
+});
+
+ipcMain.handle('get-reminders', () => {
+  return reminderManager.listReminders().map(serializeReminder);
+});
+
+ipcMain.handle('save-reminder', (event, { reminder }) => {
+  try {
+    const savedReminder = reminderManager.saveReminder(reminder);
+    broadcastReminderListChanged();
+    sendActiveReminderToPet();
+    return { success: true, reminder: serializeReminder(savedReminder) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-reminder', (event, { id }) => {
+  const deleted = reminderManager.deleteReminder(id);
+  if (activeReminderId === id) {
+    activeReminderId = null;
+  }
+  broadcastReminderListChanged();
+  sendActiveReminderToPet();
+  return { success: deleted };
+});
+
+ipcMain.handle('acknowledge-reminder', (event, { id }) => {
+  const acknowledged = reminderManager.acknowledgeReminder(id);
+  if (activeReminderId === id) {
+    activeReminderId = null;
+  }
+  broadcastReminderListChanged();
+  sendActiveReminderToPet();
+  return {
+    success: Boolean(acknowledged),
+    reminder: serializeReminder(acknowledged)
+  };
+});
+
 ipcMain.handle('send-message', async (event, { messages }) => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
   return await apiService.sendMessage(messages);
 });
 
@@ -329,11 +617,64 @@ ipcMain.handle('save-conversation', async (event, { conversation }) => {
 });
 
 ipcMain.handle('capture-screen', async () => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
   return await captureScreen();
 });
 
+ipcMain.handle('select-screenshot-region', async () => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
+  return await selectScreenshotRegion();
+});
+
 ipcMain.handle('analyze-screenshot', async (event, { base64Image }) => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
   return await apiService.analyzeScreenshot(base64Image);
+});
+
+ipcMain.handle('analyze-image', async (event, { base64Image, prompt, mimeType }) => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
+  return await apiService.analyzeImage(base64Image, prompt, mimeType);
+});
+
+ipcMain.handle('generate-image', async (event, { prompt, base64Image, mimeType }) => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
+  return await apiService.generateImage(prompt, base64Image, mimeType);
+});
+
+ipcMain.handle('copy-generated-image', async (event, { image }) => {
+  try {
+    const { bytes } = await getGeneratedImageBytes(image);
+    clipboard.writeImage(nativeImage.createFromBuffer(bytes));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-generated-image', async (event, { image }) => {
+  try {
+    const { bytes, mimeType } = await getGeneratedImageBytes(image);
+    const extension = getImageExtension(mimeType);
+    const result = await dialog.showSaveDialog(chatWindow, {
+      title: '保存生成的图片',
+      defaultPath: `generated-image-${Date.now()}.${extension}`,
+      filters: [{ name: '图片', extensions: [extension] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+
+    fs.writeFileSync(result.filePath, bytes);
+    return { success: true, path: result.filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
 // 测试 API 配置
@@ -355,20 +696,31 @@ ipcMain.handle('get-active-config', () => {
 });
 
 ipcMain.handle('add-api-config', (event, { config: newConfig }) => {
-  return store.addConfig(newConfig);
+  const createdConfig = store.addConfig(newConfig);
+  notifyApiConfigsChanged(chatWindow);
+  return createdConfig;
 });
 
 ipcMain.handle('update-api-config', (event, { id, updates }) => {
-  return store.updateConfig(id, updates);
+  const updatedConfig = store.updateConfig(id, updates);
+  if (updatedConfig) {
+    notifyApiConfigsChanged(chatWindow);
+  }
+  return updatedConfig;
 });
 
 ipcMain.handle('delete-api-config', (event, { id }) => {
   store.deleteConfig(id);
+  notifyApiConfigsChanged(chatWindow);
   return { success: true };
 });
 
 ipcMain.handle('set-active-config', (event, { id }) => {
-  return store.setActiveConfig(id);
+  const changed = store.setActiveConfig(id);
+  if (changed) {
+    notifyApiConfigsChanged(chatWindow);
+  }
+  return changed;
 });
 
 // Store 相关
@@ -407,7 +759,7 @@ ipcMain.on('theme-changed', (event, isDarkMode) => {
 // ========== 宠物相关 IPC 处理 ==========
 
 // 宠物图片大小配置（与窗口大小对应）
-const petImageSizes = { small: 150, medium: 200, large: 250 };
+const petImageSizes = { small: 72, medium: 92, large: 116 };
 
 // 更新宠物图片
 ipcMain.on('update-pet-image', (event, imagePath) => {
@@ -419,10 +771,11 @@ ipcMain.on('update-pet-image', (event, imagePath) => {
 // 更新宠物大小
 ipcMain.on('update-pet-size', (event, size) => {
   if (petWindow && !petWindow.isDestroyed()) {
-    const windowSize = petSizeConfig[size] || petSizeConfig.medium;
+    const windowSize = getPetWindowSize(size, Boolean(activeReminderId));
     const imageSize = petImageSizes[size] || petImageSizes.medium;
     petWindow.setSize(windowSize.width, windowSize.height);
     petWindow.webContents.send('pet-size-updated', imageSize);
+    sendActiveReminderToPet();
   }
 });
 
@@ -448,7 +801,7 @@ ipcMain.on('update-chat-font-size', (event, fontSize) => {
 ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory'],
-    title: '选择 Markdown 保存路径'
+    title: '选择工作目录'
   });
   
   if (!result.canceled && result.filePaths.length > 0) {
@@ -508,6 +861,8 @@ ipcMain.handle('toggle-mcp', (event, { enabled }) => {
 
 // 发送消息（带工具调用支持）
 ipcMain.handle('send-message-with-tools', async (event, { messages }) => {
+  const directoryError = ensureWorkDirectoryConfigured();
+  if (directoryError) return directoryError;
   return await apiService.sendMessageWithTools(messages, (toolCall) => {
     // 将工具调用进度发送到渲染进程
     if (chatWindow && !chatWindow.isDestroyed()) {
@@ -538,7 +893,6 @@ ipcMain.handle('start-proxy-server', () => {
       return { success: false, error: '没有可用的 Gemini API Key，请先在 API 配置中添加 Gemini 配置' };
     }
     
-    // 中转站会自动从 store 读取网络代理配置
     proxyServer.start(allKeys, proxyConfig.port || 3001);
     store.setProxyEnabled(true);
     return { success: true, port: proxyConfig.port || 3001, keyCount: allKeys.length };
@@ -692,83 +1046,6 @@ ipcMain.handle('set-auto-sync-api-configs', (event, { enabled }) => {
     proxyServer.reloadKeys(store.getAllGeminiKeys());
   }
   return { success: true };
-});
-
-// ========== 网络代理配置 ==========
-
-// 获取网络代理配置
-ipcMain.handle('get-network-proxy', () => {
-  return store.getNetworkProxy();
-});
-
-// 设置网络代理配置（动态生效，无需重启）
-ipcMain.handle('set-network-proxy', (event, proxyConfig) => {
-  store.setNetworkProxy(proxyConfig);
-  // 配置已保存到 store，proxy-server 和 key-manager 会动态读取
-  console.log(`🌐 网络代理配置已更新: ${proxyConfig.enabled ? `${proxyConfig.host}:${proxyConfig.port}` : '已禁用'}`);
-  return { success: true, needRestart: false };  // 不需要重启！
-});
-
-// 测试网络代理连接
-ipcMain.handle('test-network-proxy', async (event, proxyConfig) => {
-  const https = require('https');
-  
-  try {
-    const { HttpsProxyAgent } = require('https-proxy-agent');
-    const proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
-    const agent = new HttpsProxyAgent(proxyUrl);
-    
-    return new Promise((resolve) => {
-      const startTime = Date.now();
-      
-      const req = https.request({
-        hostname: 'generativelanguage.googleapis.com',
-        port: 443,
-        path: '/v1beta/models',
-        method: 'GET',
-        agent: agent,
-        timeout: 15000
-      }, (res) => {
-        const responseTime = Date.now() - startTime;
-        // 能连接就算成功（即使返回 401）
-        if (res.statusCode === 200 || res.statusCode === 401 || res.statusCode === 403) {
-          resolve({ 
-            success: true, 
-            responseTime,
-            message: `代理连接成功 (${responseTime}ms)`
-          });
-        } else {
-          resolve({ 
-            success: false, 
-            error: `HTTP ${res.statusCode}`,
-            responseTime
-          });
-        }
-        res.resume(); // 消费响应
-      });
-      
-      req.on('error', (err) => {
-        resolve({ 
-          success: false, 
-          error: err.message.includes('ECONNREFUSED') 
-            ? '无法连接到代理服务器，请检查代理是否启动'
-            : err.message
-        });
-      });
-      
-      req.on('timeout', () => {
-        req.destroy();
-        resolve({ 
-          success: false, 
-          error: '代理连接超时，请检查代理配置'
-        });
-      });
-      
-      req.end();
-    });
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
 });
 
 // 刷新中转站 Keys（当 API 配置变化时调用）
@@ -990,6 +1267,8 @@ app.whenReady().then(async () => {
     }
   }
 
+  startReminderScheduler();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createPetWindow();
@@ -1005,6 +1284,8 @@ app.on('window-all-closed', () => {
 
 // 应用退出时清理
 app.on('before-quit', async () => {
+  stopReminderScheduler();
+
   // 停止中转站
   proxyServer.stop();
   

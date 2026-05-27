@@ -1,6 +1,6 @@
 {
   "categories": ["快速处理", "编程开发", "文档写作", "学习研究", "日常提效", "自定义"],
-  "quickAccess": ["summarize", "translate", "polish", "explain"],
+  "quickAccess": ["summarize", "translate", "polish", "explain", "generate-image"],
   "templates": [
     {
       "id": "summarize",
@@ -32,6 +32,14 @@
       "icon": "❓",
       "category": "快速处理",
       "prompt": "请用简单易懂的方式解释以下内容：\n\n{{text}}",
+      "isBuiltin": true
+    },
+    {
+      "id": "generate-image",
+      "name": "生成图片",
+      "icon": "🎨",
+      "category": "快速处理",
+      "prompt": "生成一张{{text}}的图片，主体清晰，构图自然，色彩协调，光影细腻，细节丰富，高质量，无文字水印，无明显畸形。",
       "isBuiltin": true
     },
     {
@@ -188,4 +196,3 @@
     }
   ]
 }
-

@@ -588,8 +588,8 @@ module.exports = {
   window: {
     petWidth: 200,
     petHeight: 200,
-    chatWidth: 900,
-    chatHeight: 950,
+    chatWidth: 600,
+    chatHeight: 633,
     settingsWidth: 950,  // 稍微增大以容纳更多内容
     settingsHeight: 700
   },

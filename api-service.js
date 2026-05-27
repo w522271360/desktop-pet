@@ -2,6 +2,19 @@
 const axios = require('axios');
 const config = require('./config');
 const store = require('./store');
+const { supportsVision } = require('./vision-capabilities');
+const {
+  resolveChatCompletionsUrl,
+  resolveImagesUrl,
+  extractChatCompletionMessage,
+  extractChatCompletionContent,
+  extractGeneratedImage
+} = require('./openai-compatible');
+const {
+  IMAGE_GENERATION_MODEL,
+  IMAGE_GENERATION_TIMEOUT_MS
+} = require('./image-generation-config');
+const { appendImageGenerationLog } = require('./image-generation-log');
 
 // MCP客户端（延迟加载，避免循环依赖）
 let mcpClient = null;
@@ -28,6 +41,9 @@ function formatFriendlyError(error) {
   if (errorStr.includes('timeout') || errorStr.includes('timed out')) {
     return '⏱️ 等待时间太长了，网络可能有点慢呢~';
   }
+  if (errorStr.includes('econnreset') || errorStr.includes('socket disconnected')) {
+    return '🌐 API 服务在建立连接时断开了请求。请检查 API 地址/模型名是否匹配，或稍后重试。';
+  }
   if (errorStr.includes('network') || errorStr.includes('enotfound') || errorStr.includes('econnrefused')) {
     return '🌐 网络连接似乎有点问题，检查一下网络吧~';
   }
@@ -44,16 +60,44 @@ function formatFriendlyError(error) {
   return `遇到了一点小问题：${error}`;
 }
 
+function sanitizeErrorForLog(error) {
+  const safe = {
+    name: error.name,
+    message: error.message,
+    code: error.code,
+    status: error.response?.status,
+    response: error.response?.data
+  };
+
+  if (error.config) {
+    safe.request = {
+      method: error.config.method,
+      url: error.config.url,
+      timeout: error.config.timeout,
+      model: safeModelFromPayload(error.config.data)
+    };
+  }
+
+  return safe;
+}
+
+function safeModelFromPayload(data) {
+  try {
+    const payload = typeof data === 'string' ? JSON.parse(data) : data;
+    return payload?.model;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+function logApiError(label, error) {
+  console.error(label, sanitizeErrorForLog(error));
+}
+
 class APIService {
   // 检查配置是否支持视觉
   checkVisionSupport(apiConfig) {
-    const { provider, selectedModel } = apiConfig;
-    const template = config.providerTemplates[provider];
-    
-    if (!template) return false;
-    
-    const model = template.models.find(m => m.id === selectedModel);
-    return model?.supportsVision === true;
+    return supportsVision(apiConfig, config.providerTemplates);
   }
 
   // 通用测试连接方法
@@ -110,7 +154,7 @@ class APIService {
         response: response.data
       };
     } catch (error) {
-      console.error('Claude API测试失败:', error);
+      logApiError('Claude API测试失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -122,11 +166,7 @@ class APIService {
   // 测试 OpenAI 兼容 API（DeepSeek、OpenAI、自定义）
   async testOpenAICompatible(apiUrl, apiKey, model) {
     try {
-      // 自动处理 URL：如果是 base URL (以 /v1 结尾)，自动追加 /chat/completions
-      let finalUrl = apiUrl;
-      if (apiUrl.endsWith('/v1') || apiUrl.endsWith('/v1/')) {
-        finalUrl = apiUrl.replace(/\/v1\/?$/, '/v1/chat/completions');
-      }
+      const finalUrl = resolveChatCompletionsUrl(apiUrl);
       
       const response = await axios.post(
         finalUrl,
@@ -150,7 +190,7 @@ class APIService {
         response: response.data
       };
     } catch (error) {
-      console.error('API测试失败:', error);
+      logApiError('API测试失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -186,7 +226,7 @@ class APIService {
         response: response.data
       };
     } catch (error) {
-      console.error('Gemini测试失败:', error);
+      logApiError('Gemini测试失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -196,7 +236,7 @@ class APIService {
   }
 
   // 调用 OpenAI 兼容 API（支持视觉）
-  async callOpenAICompatibleWithVision(messages, base64Image, apiConfig) {
+  async callOpenAICompatibleWithVision(messages, base64Image, apiConfig, mimeType = 'image/png') {
     const { apiUrl, apiKey, selectedModel, name } = apiConfig;
     
     try {
@@ -213,7 +253,7 @@ class APIService {
             {
               type: 'image_url',
               image_url: {
-                url: `data:image/png;base64,${base64Image}`
+                url: `data:${mimeType};base64,${base64Image}`
               }
             }
           ]
@@ -221,7 +261,7 @@ class APIService {
       ];
 
       const response = await axios.post(
-        apiUrl,
+        resolveChatCompletionsUrl(apiUrl),
         {
           model: selectedModel,
           messages: visionMessages,
@@ -237,11 +277,11 @@ class APIService {
 
       return {
         success: true,
-        content: response.data.choices[0].message.content,
+        content: extractChatCompletionContent(response.data),
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('视觉API调用失败:', error);
+      logApiError('视觉API调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -256,7 +296,7 @@ class APIService {
     
     try {
       const response = await axios.post(
-        apiUrl,
+        resolveChatCompletionsUrl(apiUrl),
         {
           model: selectedModel,
           messages: messages,
@@ -273,11 +313,11 @@ class APIService {
 
       return {
         success: true,
-        content: response.data.choices[0].message.content,
+        content: extractChatCompletionContent(response.data),
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('API调用失败:', error);
+      logApiError('API调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -287,7 +327,7 @@ class APIService {
   }
 
   // 调用 Gemini API（支持视觉）
-  async callGeminiWithVision(messages, base64Image, apiConfig) {
+  async callGeminiWithVision(messages, base64Image, apiConfig, mimeType = 'image/png') {
     const { apiUrl, apiKey, selectedModel, name } = apiConfig;
     
     try {
@@ -302,7 +342,7 @@ class APIService {
               { text: messages[messages.length - 1].content },
               {
                 inline_data: {
-                  mime_type: 'image/png',
+                  mime_type: mimeType,
                   data: base64Image
                 }
               }
@@ -322,7 +362,7 @@ class APIService {
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('Gemini视觉API调用失败:', error);
+      logApiError('Gemini视觉API调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -360,7 +400,7 @@ class APIService {
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('Gemini调用失败:', error);
+      logApiError('Gemini调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -369,8 +409,8 @@ class APIService {
     }
   }
 
-  // 截图分析 - 使用当前激活的配置（如果支持视觉）
-  async analyzeScreenshot(base64Image) {
+  // 图片分析 - 使用当前激活的配置（支持截图和粘贴的图片）
+  async analyzeImage(base64Image, prompt, mimeType = 'image/png') {
     const activeConfig = store.getActiveConfig();
     
     if (!activeConfig || !activeConfig.apiKey) {
@@ -401,18 +441,18 @@ class APIService {
     const analysisMessage = [
       { 
         role: 'user', 
-        content: '请分析这张屏幕截图，告诉我用户遇到了什么问题，或者画面里有什么？请用中文回答。' 
+        content: prompt || '请分析这张图片，告诉我用户遇到了什么问题，或者画面里有什么？请用中文回答。'
       }
     ];
     
     try {
       if (provider === 'gemini') {
-        return await this.callGeminiWithVision(analysisMessage, base64Image, activeConfig);
+        return await this.callGeminiWithVision(analysisMessage, base64Image, activeConfig, mimeType);
       } else if (provider === 'claude') {
-        return await this.callClaudeWithVision(analysisMessage, base64Image, activeConfig);
+        return await this.callClaudeWithVision(analysisMessage, base64Image, activeConfig, mimeType);
       } else {
         // DeepSeek、OpenAI等使用OpenAI兼容格式
-        return await this.callOpenAICompatibleWithVision(analysisMessage, base64Image, activeConfig);
+        return await this.callOpenAICompatibleWithVision(analysisMessage, base64Image, activeConfig, mimeType);
       }
     } catch (error) {
       const friendlyError = formatFriendlyError(error.message);
@@ -422,9 +462,115 @@ class APIService {
       };
     }
   }
+
+  async analyzeScreenshot(base64Image) {
+    return await this.analyzeImage(
+      base64Image,
+      '请分析这张屏幕截图，告诉我用户遇到了什么问题，或者画面里有什么？请用中文回答。',
+      'image/png'
+    );
+  }
+
+  async generateImage(prompt, base64Image = null, mimeType = 'image/png') {
+    const activeConfig = store.getActiveConfig();
+
+    if (!activeConfig || !activeConfig.apiKey) {
+      return {
+        success: false,
+        error: '还没有 API 密钥，无法生成图片。请先在设置中配置 API。'
+      };
+    }
+
+    if (!['custom', 'openai'].includes(activeConfig.provider)) {
+      return {
+        success: false,
+        error: '当前仅支持通过 OpenAI 兼容或自定义 API 配置生成图片。'
+      };
+    }
+
+    const imageModel = IMAGE_GENERATION_MODEL;
+    const operation = base64Image ? 'edit' : 'generation';
+    const endpoint = resolveImagesUrl(activeConfig.apiUrl, base64Image ? 'edits' : 'generations');
+    const startedAt = Date.now();
+    appendImageGenerationLog(store.path, 'request-started', {
+      endpoint,
+      model: imageModel,
+      operation,
+      timeoutMs: IMAGE_GENERATION_TIMEOUT_MS
+    });
+
+    try {
+      let response;
+      if (base64Image) {
+        const formData = new FormData();
+        formData.append('model', imageModel);
+        formData.append('prompt', prompt);
+        formData.append('n', '1');
+        formData.append('image', new Blob([Buffer.from(base64Image, 'base64')], { type: mimeType }), 'input-image');
+        response = await axios.post(
+          endpoint,
+          formData,
+          {
+            headers: { Authorization: `Bearer ${activeConfig.apiKey}` },
+            timeout: IMAGE_GENERATION_TIMEOUT_MS
+          }
+        );
+      } else {
+        response = await axios.post(
+          endpoint,
+          {
+            model: imageModel,
+            prompt,
+            n: 1,
+            size: '1024x1024'
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${activeConfig.apiKey}`
+            },
+            timeout: IMAGE_GENERATION_TIMEOUT_MS
+          }
+        );
+      }
+
+      appendImageGenerationLog(store.path, 'response-received', {
+        endpoint,
+        model: imageModel,
+        operation,
+        durationMs: Date.now() - startedAt,
+        status: response.status
+      });
+      return {
+        success: true,
+        image: extractGeneratedImage(response.data),
+        model: imageModel
+      };
+    } catch (error) {
+      logApiError('图片生成失败:', error);
+      appendImageGenerationLog(store.path, 'request-failed', {
+        endpoint,
+        model: imageModel,
+        operation,
+        durationMs: Date.now() - startedAt,
+        status: error.response?.status || null,
+        code: error.code || null
+      });
+      if (error.code === 'ECONNABORTED') {
+        return {
+          success: false,
+          error: `图片生成等待超过 ${IMAGE_GENERATION_TIMEOUT_MS / 60000} 分钟。已按 POST /v1/images/generations、model: ${imageModel} 发出请求，但中转站未在限时内返回图片，请稍后重试或检查该模型线路状态。`
+        };
+      }
+      return {
+        success: false,
+        error: formatFriendlyError(error.response?.data?.error?.message || error.message)
+      };
+    }
+  }
   
   // 调用 Claude API（支持视觉）
-  async callClaudeWithVision(messages, base64Image, apiConfig) {
+  async callClaudeWithVision(messages, base64Image, apiConfig, mimeType = 'image/png') {
     const { apiUrl, apiKey, selectedModel, name } = apiConfig;
     
     try {
@@ -444,7 +590,7 @@ class APIService {
                 type: 'image',
                 source: {
                   type: 'base64',
-                  media_type: 'image/png',
+                  media_type: mimeType,
                   data: base64Image
                 }
               }
@@ -469,7 +615,7 @@ class APIService {
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('Claude视觉API调用失败:', error);
+      logApiError('Claude视觉API调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -578,7 +724,7 @@ class APIService {
         model: `${name} (${selectedModel})`
       };
     } catch (error) {
-      console.error('Claude API调用失败:', error);
+      logApiError('Claude API调用失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -858,7 +1004,7 @@ class APIService {
         };
 
       } catch (error) {
-        console.error('Gemini 带工具调用的API请求失败:', error);
+        logApiError('Gemini 带工具调用的API请求失败:', error);
         const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
         return {
           success: false,
@@ -915,7 +1061,7 @@ class APIService {
 
       try {
         const response = await axios.post(
-          apiUrl,
+          resolveChatCompletionsUrl(apiUrl),
           {
             model: selectedModel,
             messages: currentMessages,
@@ -933,8 +1079,7 @@ class APIService {
           }
         );
 
-        const choice = response.data.choices[0];
-        const message = choice.message;
+        const message = extractChatCompletionMessage(response.data);
 
         // 检查是否有工具调用
         if (message.tool_calls && message.tool_calls.length > 0) {
@@ -1008,7 +1153,7 @@ class APIService {
         };
 
       } catch (error) {
-        console.error('带工具调用的API请求失败:', error);
+        logApiError('带工具调用的API请求失败:', error);
         const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
         return {
           success: false,
@@ -1028,7 +1173,7 @@ class APIService {
       });
 
       const response = await axios.post(
-        apiUrl,
+        resolveChatCompletionsUrl(apiUrl),
         {
           model: selectedModel,
           messages: currentMessages,
@@ -1046,7 +1191,7 @@ class APIService {
 
       return {
         success: true,
-        content: response.data.choices[0].message.content,
+        content: extractChatCompletionContent(response.data),
         model: `${name} (${selectedModel})`,
         toolCalls: toolCallResults
       };

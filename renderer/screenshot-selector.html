@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>选择截图范围</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      cursor: crosshair;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: #111;
+    }
+
+    #screen-image {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: fill;
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.36);
+    }
+
+    #selection {
+      position: fixed;
+      display: none;
+      border: 2px solid #ff9800;
+      background: rgba(255, 152, 0, 0.08);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
+    }
+
+    #hint {
+      position: fixed;
+      left: 50%;
+      top: 24px;
+      transform: translateX(-50%);
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: rgba(20, 20, 20, 0.78);
+      color: #fff;
+      font-size: 13px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <img id="screen-image" alt="屏幕截图背景">
+  <div id="overlay"></div>
+  <div id="selection"></div>
+  <div id="hint">拖拽选择截图范围，Esc 取消</div>
+
+  <script>
+    const screenImage = document.getElementById('screen-image');
+    const selection = document.getElementById('selection');
+    let startPoint = null;
+    let currentRect = null;
+
+    function normalizeRect(start, end) {
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      return {
+        x,
+        y,
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y)
+      };
+    }
+
+    function renderSelection(rect) {
+      currentRect = rect;
+      selection.style.display = 'block';
+      selection.style.left = `${rect.x}px`;
+      selection.style.top = `${rect.y}px`;
+      selection.style.width = `${rect.width}px`;
+      selection.style.height = `${rect.height}px`;
+    }
+
+    window.electronAPI.onScreenshotSelectionData((data) => {
+      screenImage.src = `data:image/png;base64,${data.image}`;
+    });
+
+    window.addEventListener('mousedown', (event) => {
+      startPoint = { x: event.clientX, y: event.clientY };
+      renderSelection({ x: event.clientX, y: event.clientY, width: 0, height: 0 });
+    });
+
+    window.addEventListener('mousemove', (event) => {
+      if (!startPoint) return;
+      renderSelection(normalizeRect(startPoint, { x: event.clientX, y: event.clientY }));
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!startPoint || !currentRect || currentRect.width < 4 || currentRect.height < 4) {
+        window.electronAPI.cancelScreenshotSelection();
+        return;
+      }
+      window.electronAPI.finishScreenshotSelection(currentRect);
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        window.electronAPI.cancelScreenshotSelection();
+      }
+    });
+  </script>
+</body>
+</html>

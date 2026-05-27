@@ -17,6 +17,11 @@ const store = new Store({
     // 主题配置
     darkMode: false,
     themeColor: 'shiba',
+
+    // 助手个性化配置
+    assistantNickname: '小秘书',
+    userDisplayName: '',
+    reminders: [],
     
     // API 配置卡片列表（默认为空，用户自行添加）
     apiConfigs: [],
@@ -244,38 +249,6 @@ store.setAutoSyncApiConfigs = function(enabled) {
   const config = this.getProxyConfig();
   config.autoSyncApiConfigs = enabled;
   this.set('proxyConfig', config);
-};
-
-// ========== 网络代理配置方法 ==========
-
-store.getNetworkProxy = function() {
-  return this.get('networkProxy', {
-    enabled: false,
-    host: '127.0.0.1',
-    port: 7890
-  });
-};
-
-store.setNetworkProxy = function(proxyConfig) {
-  this.set('networkProxy', {
-    enabled: proxyConfig.enabled || false,
-    host: proxyConfig.host || '127.0.0.1',
-    port: proxyConfig.port || 7890
-  });
-};
-
-store.setNetworkProxyEnabled = function(enabled) {
-  const config = this.getNetworkProxy();
-  config.enabled = enabled;
-  this.set('networkProxy', config);
-};
-
-store.getProxyUrl = function() {
-  const config = this.getNetworkProxy();
-  if (config.enabled) {
-    return `http://${config.host}:${config.port}`;
-  }
-  return null;
 };
 
 // ========== 提示词模板管理方法 ==========

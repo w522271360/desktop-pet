@@ -310,6 +310,35 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
+.generated-image-preview {
+  display: block;
+  max-width: min(100%, 420px);
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--primary-light);
+}
+
+.generated-image-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.generated-image-actions button {
+  padding: 7px 14px;
+  border: 1px solid var(--primary-light);
+  border-radius: 16px;
+  background: white;
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.generated-image-actions button:hover {
+  background: var(--primary-light);
+}
+
 /* ========== 加载动画 ========== */
 .loading {
   align-self: flex-start;
@@ -366,6 +395,45 @@ body {
 .input-wrapper:focus-within {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+}
+
+.image-attachment-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--primary-light);
+  border-radius: 12px;
+  background: #FFF7EF;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.image-attachment-preview.hidden {
+  display: none;
+}
+
+.image-attachment-preview img {
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.image-attachment-preview span {
+  flex: 1;
+}
+
+.image-attachment-preview button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
 }
 
 #user-input {
@@ -500,6 +568,7 @@ body {
   top: 20px;
   right: 20px;
   padding: 12px 18px;
+  white-space: pre-wrap;
   border-radius: 10px;
   font-size: 13px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -516,6 +585,7 @@ body {
 #status.success { background: linear-gradient(135deg, #4CAF50 0%, #43A047 100%); color: white; }
 #status.error { background: linear-gradient(135deg, #F44336 0%, #E53935 100%); color: white; }
 #status.info { background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); color: white; }
+#status.warning { background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; }
 
 /* ========== 编辑模态框 ========== */
 .modal {
@@ -1058,6 +1128,12 @@ body.dark-mode .input-wrapper {
 body.dark-mode .input-wrapper:focus-within {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.15);
+}
+
+body.dark-mode .image-attachment-preview {
+  background: #252540;
+  border-color: #3D4A6A;
+  color: #E4E4E7;
 }
 
 body.dark-mode #user-input {

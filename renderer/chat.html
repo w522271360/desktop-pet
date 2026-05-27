@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Yuns对话助手</title>
+  <title>私人小秘书</title>
   <link rel="stylesheet" href="chat.css">
 </head>
 <body>
@@ -36,11 +36,17 @@
           <!-- 快捷模板按钮将由 JS 动态生成 -->
         </div>
       </div>
+
+      <div id="image-attachment-preview" class="image-attachment-preview hidden">
+        <img id="image-attachment-thumbnail" alt="已粘贴的图片">
+        <span>已粘贴图片，将随消息发送</span>
+        <button id="remove-image-attachment" type="button" title="移除图片">×</button>
+      </div>
       
       <div class="input-wrapper">
         <textarea 
           id="user-input" 
-          placeholder="输入问题... (Ctrl+Enter 发送)"
+          placeholder="输入问题，或粘贴图片... (Ctrl+Enter 发送)"
           rows="1"
         ></textarea>
         <div class="input-actions">
@@ -84,6 +90,8 @@
 
 <!-- 先加载友好消息模块 -->
 <script src="friendly-messages.js"></script>
+<script src="image-attachment.js"></script>
+<script src="image-intent.js"></script>
 <!-- 再加载主逻辑 -->
 <script src="chat.js"></script>
 </body>

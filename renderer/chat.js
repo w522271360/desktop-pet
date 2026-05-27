@@ -9,6 +9,9 @@ const statusDiv = document.getElementById('status');
 const configSelect = document.getElementById('config-select');
 const configInfo = document.getElementById('config-info');
 const stopBtn = document.getElementById('stop-btn');
+const imageAttachmentPreview = document.getElementById('image-attachment-preview');
+const imageAttachmentThumbnail = document.getElementById('image-attachment-thumbnail');
+const removeImageAttachmentBtn = document.getElementById('remove-image-attachment');
 
 // 编辑模态框相关
 const editModal = document.getElementById('edit-modal');
@@ -30,6 +33,9 @@ let apiMessages = [];
 let apiConfigs = [];
 let appConfig = null;
 let mcpEnabled = false;
+let pendingImageAttachment = null;
+let assistantNickname = '小秘书';
+let userDisplayName = '';
 
 // 生成控制
 let isGenerating = false;
@@ -52,6 +58,7 @@ async function initializeApp() {
   
   // 加载并应用主题
   await loadTheme();
+  await loadPersonalizationSettings();
   
   // 监听夜间模式变化
   window.electronAPI.onThemeChanged(applyDarkMode);
@@ -64,10 +71,18 @@ async function initializeApp() {
   
   // 监听 MCP 工具调用更新
   window.electronAPI.onToolCallUpdate(handleToolCallUpdate);
+
+  // 刷新已打开聊天窗口中的配置选择器
+  window.electronAPI.onApiConfigsChanged(loadConfigs);
   
   // 添加欢迎消息
   const welcomeMsg = window.getFriendlyMessage('welcome');
-  addMessage('assistant', welcomeMsg.text, 'Yuns助手');
+  addMessage('assistant', welcomeMsg.text, assistantNickname);
+
+  if (!await window.electronAPI.storeGet('markdownPath')) {
+    addMessage('assistant', '使用前请先在设置 -> 通用设置中选择工作目录。设置完成后即可聊天、生成图片和保存文件。', '提示');
+    window.electronAPI.openSettings();
+  }
   
   // 监听滚动事件
   messagesContainer.addEventListener('scroll', handleScroll);
@@ -79,6 +94,11 @@ async function initializeApp() {
   // 初始化快捷模板
   await initializeTemplates();
   
+}
+
+async function loadPersonalizationSettings() {
+  assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
+  userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '';
 }
 
 // 加载主题
@@ -485,6 +505,7 @@ function checkCurrentVisionSupport() {
   const config = apiConfigs.find(c => c.id === selectedId);
   
   if (!config || !appConfig) return false;
+  if (config.provider === 'custom') return true;
   
   const template = appConfig.providerTemplates[config.provider];
   const model = template?.models.find(m => m.id === config.selectedModel);
@@ -521,14 +542,78 @@ async function updateConfigInfo() {
   const model = template?.models.find(m => m.id === config.selectedModel);
   
   let infoText = `${template?.icon || ''} ${model?.name || config.selectedModel}`;
-  if (model?.supportsVision) {
+  const supportsVision = checkCurrentVisionSupport();
+  if (supportsVision) {
     infoText += ' 👁️';
   }
   
   configInfo.textContent = infoText;
   configInfo.className = config.apiKey ? 'config-badge success' : 'config-badge';
   
-  updateScreenshotButton(model?.supportsVision === true);
+  updateScreenshotButton(supportsVision);
+}
+
+function setImageAttachment(attachment) {
+  pendingImageAttachment = attachment;
+  imageAttachmentThumbnail.src = `data:${attachment.mimeType};base64,${attachment.base64}`;
+  imageAttachmentPreview.classList.remove('hidden');
+}
+
+function clearImageAttachment() {
+  pendingImageAttachment = null;
+  imageAttachmentThumbnail.removeAttribute('src');
+  imageAttachmentPreview.classList.add('hidden');
+}
+
+function getImageSource(image) {
+  if (typeof image === 'string') {
+    return `data:image/png;base64,${image}`;
+  }
+
+  return image.url || `data:${image.mimeType || 'image/png'};base64,${image.base64}`;
+}
+
+function buildPersonalizedMessages(messages) {
+  const nickname = assistantNickname || '小秘书';
+  const userName = userDisplayName || '你';
+  const personalizationPrompt = `你在本应用中的助手昵称是「${nickname}」。请用中文回复。称呼用户时，使用「${userName}」。`;
+
+  if (messages.length > 0 && messages[0].role === 'system') {
+    return [
+      { ...messages[0], content: `${personalizationPrompt}\n\n${messages[0].content}` },
+      ...messages.slice(1)
+    ];
+  }
+
+  return [
+    { role: 'system', content: personalizationPrompt },
+    ...messages
+  ];
+}
+
+function buildPersonalizedPrompt(prompt) {
+  const nickname = assistantNickname || '小秘书';
+  const userName = userDisplayName || '你';
+  return `你在本应用中的助手昵称是「${nickname}」。请用中文回复。称呼用户时，使用「${userName}」。\n\n${prompt}`;
+}
+
+function handleImagePaste(event) {
+  const imageItem = window.ImageAttachment.findClipboardImage(event.clipboardData?.items);
+  if (!imageItem) return;
+
+  event.preventDefault();
+  const imageFile = imageItem.getAsFile();
+  if (!imageFile) return;
+
+  const reader = new FileReader();
+  reader.addEventListener('load', () => {
+    const attachment = window.ImageAttachment.parseImageDataUrl(reader.result);
+    if (!attachment) return;
+
+    setImageAttachment(attachment);
+    showStatus('已粘贴图片，输入问题后发送即可', 'success');
+  });
+  reader.readAsDataURL(imageFile);
 }
 
 // 添加消息到界面
@@ -536,11 +621,7 @@ function addMessage(role, content, model = null, screenshot = null, messageIndex
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${role}`;
   
-  const label = document.createElement('div');
-  label.className = 'message-label';
-  
   if (role === 'user') {
-    label.innerHTML = '你';
     // 为用户消息添加点击编辑功能
     const actualIndex = messageIndex >= 0 ? messageIndex : conversationHistory.length;
     messageDiv.dataset.messageIndex = actualIndex;
@@ -548,19 +629,21 @@ function addMessage(role, content, model = null, screenshot = null, messageIndex
       openEditModal(content, actualIndex);
     });
   } else {
-    label.innerHTML = `AI助手${model ? ` <span class="model-badge">${model}</span>` : ''}`;
+    const label = document.createElement('div');
+    label.className = 'message-label';
+    label.innerHTML = `${assistantNickname || '小秘书'}${model ? ` <span class="model-badge">${model}</span>` : ''}`;
+    messageDiv.appendChild(label);
   }
   
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
   contentDiv.textContent = content;
   
-  messageDiv.appendChild(label);
   messageDiv.appendChild(contentDiv);
   
   if (screenshot) {
     const img = document.createElement('img');
-    img.src = 'data:image/png;base64,' + screenshot;
+    img.src = getImageSource(screenshot);
     img.className = 'screenshot-preview';
     messageDiv.appendChild(img);
   }
@@ -576,24 +659,20 @@ async function addMessageStreaming(role, content, model = null, screenshot = nul
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${role}`;
   
-  const label = document.createElement('div');
-  label.className = 'message-label';
-  
-  if (role === 'user') {
-    label.innerHTML = '你';
-  } else {
-    label.innerHTML = `AI助手${model ? ` <span class="model-badge">${model}</span>` : ''}`;
-  }
-  
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content streaming';
   
-  messageDiv.appendChild(label);
+  if (role !== 'user') {
+    const label = document.createElement('div');
+    label.className = 'message-label';
+    label.innerHTML = `${assistantNickname || '小秘书'}${model ? ` <span class="model-badge">${model}</span>` : ''}`;
+    messageDiv.appendChild(label);
+  }
   messageDiv.appendChild(contentDiv);
   
   if (screenshot) {
     const img = document.createElement('img');
-    img.src = 'data:image/png;base64,' + screenshot;
+    img.src = getImageSource(screenshot);
     img.className = 'screenshot-preview';
     messageDiv.appendChild(img);
   }
@@ -646,9 +725,32 @@ function showStatus(message, type = 'success') {
   setTimeout(() => statusDiv.classList.add('hidden'), 3000);
 }
 
+async function ensureWorkDirectorySelected() {
+  const workDirectory = await window.electronAPI.storeGet('markdownPath');
+  if (workDirectory) {
+    return true;
+  }
+
+  showStatus('请先到设置 -> 通用设置选择工作目录，再开始使用。', 'warning');
+  window.electronAPI.openSettings();
+  return false;
+}
+
 // 发送消息
 async function sendMessage(isRegenerate = false) {
+  if (!await ensureWorkDirectorySelected()) return;
+
   const question = userInput.value.trim();
+
+  if (pendingImageAttachment) {
+    await sendImageMessage(question || '请分析这张图片');
+    return;
+  }
+
+  if (window.ImageIntent.requestsImageOutput(question)) {
+    await sendGeneratedImage(question);
+    return;
+  }
   
   if (!question) {
     const msg = window.getFriendlyMessage('noInput');
@@ -690,9 +792,11 @@ async function sendMessage(isRegenerate = false) {
   showLoading();
   
   try {
+    await loadPersonalizationSettings();
+    const requestMessages = buildPersonalizedMessages(apiMessages);
     const response = mcpEnabled 
-      ? await window.electronAPI.sendMessageWithTools(apiMessages)
-      : await window.electronAPI.sendMessage(apiMessages);
+      ? await window.electronAPI.sendMessageWithTools(requestMessages)
+      : await window.electronAPI.sendMessage(requestMessages);
     
     hideLoading();
     
@@ -739,6 +843,156 @@ async function sendMessage(isRegenerate = false) {
   }
 }
 
+async function sendImageMessage(question) {
+  if (!await ensureWorkDirectorySelected()) return;
+
+  const selectedId = configSelect.value;
+  if (!selectedId) {
+    const msg = window.getFriendlyMessage('noConfig');
+    showStatus(msg.text, msg.type);
+    return;
+  }
+
+  const attachment = pendingImageAttachment;
+  if (!attachment) return;
+
+  await window.electronAPI.setActiveConfig(selectedId);
+  isGenerating = true;
+  stopGeneration = false;
+  updateButtonStates(true);
+
+  addMessage('user', question, null, attachment);
+  clearImageAttachment();
+  userInput.value = '';
+  userInput.style.height = 'auto';
+  showLoading();
+
+  try {
+    await loadPersonalizationSettings();
+    const imageEditRequested = window.ImageIntent.requestsImageOutput(question);
+    showStatus(imageEditRequested ? '正在根据原图生成新图片...' : '正在分析你粘贴的图片...', 'info');
+    const result = imageEditRequested
+      ? await window.electronAPI.generateImage(question, attachment.base64, attachment.mimeType)
+      : await window.electronAPI.analyzeImage(attachment.base64, buildPersonalizedPrompt(question), attachment.mimeType);
+    hideLoading();
+
+    if (result.success) {
+      if (imageEditRequested) {
+        addGeneratedImageMessage(result.image, result.model);
+      } else {
+        await addMessageStreaming('assistant', result.content, result.model);
+      }
+      conversationHistory.push({
+        question,
+        answer: imageEditRequested ? '[生成图片]' : result.content,
+        model: result.model
+      });
+      showStatus(imageEditRequested ? '图片已生成' : '图片分析完成', 'success');
+    } else {
+      const friendlyError = window.formatApiError(result.error || '未知错误');
+      const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
+      addMessage('assistant', msg.text, '提示 💡');
+      showStatus(msg.text.split('\n')[0], msg.type);
+    }
+  } catch (error) {
+    hideLoading();
+    const friendlyError = window.formatApiError(error.message);
+    const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
+    addMessage('assistant', msg.text, '提示 💡');
+    showStatus(msg.text.split('\n')[0], msg.type);
+  } finally {
+    isGenerating = false;
+    stopGeneration = false;
+    updateButtonStates(false);
+    userInput.focus();
+  }
+}
+
+async function sendGeneratedImage(prompt) {
+  if (!await ensureWorkDirectorySelected()) return;
+
+  const selectedId = configSelect.value;
+  if (!selectedId) {
+    const msg = window.getFriendlyMessage('noConfig');
+    showStatus(msg.text, msg.type);
+    return;
+  }
+
+  await window.electronAPI.setActiveConfig(selectedId);
+  isGenerating = true;
+  updateButtonStates(true);
+  addMessage('user', prompt);
+  userInput.value = '';
+  userInput.style.height = 'auto';
+  showLoading();
+  showStatus('正在通过 gpt-image-2 生成图片，排队时可能需要几分钟...', 'info');
+
+  try {
+    const result = await window.electronAPI.generateImage(prompt);
+    hideLoading();
+    if (result.success) {
+      addGeneratedImageMessage(result.image, result.model);
+      conversationHistory.push({
+        question: prompt,
+        answer: '[生成图片]',
+        model: result.model
+      });
+      showStatus('图片已生成', 'success');
+    } else {
+      const friendlyError = window.formatApiError(result.error || '未知错误');
+      const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
+      addMessage('assistant', msg.text, '提示 💡');
+      showStatus(msg.text.split('\n')[0], msg.type);
+    }
+  } catch (error) {
+    hideLoading();
+    const friendlyError = window.formatApiError(error.message);
+    const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
+    addMessage('assistant', msg.text, '提示 💡');
+    showStatus(msg.text.split('\n')[0], msg.type);
+  } finally {
+    isGenerating = false;
+    updateButtonStates(false);
+    userInput.focus();
+  }
+}
+
+function addGeneratedImageMessage(image, model) {
+  const messageDiv = addMessage('assistant', '图片生成完成', model);
+  const img = document.createElement('img');
+  img.src = getImageSource(image);
+  img.className = 'generated-image-preview';
+  img.alt = 'AI 生成图片';
+  messageDiv.appendChild(img);
+
+  const actions = document.createElement('div');
+  actions.className = 'generated-image-actions';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.textContent = '复制图片';
+  copyBtn.addEventListener('click', async () => {
+    const result = await window.electronAPI.copyGeneratedImage(image);
+    showStatus(result.success ? '图片已复制到剪贴板' : `复制失败：${result.error}`, result.success ? 'success' : 'warning');
+  });
+
+  const saveImageBtn = document.createElement('button');
+  saveImageBtn.type = 'button';
+  saveImageBtn.textContent = '保存图片';
+  saveImageBtn.addEventListener('click', async () => {
+    const result = await window.electronAPI.saveGeneratedImage(image);
+    if (result.success) {
+      showStatus('图片已保存', 'success');
+    } else if (!result.canceled) {
+      showStatus(`保存失败：${result.error}`, 'warning');
+    }
+  });
+
+  actions.appendChild(copyBtn);
+  actions.appendChild(saveImageBtn);
+  messageDiv.appendChild(actions);
+}
+
 // 停止生成
 function handleStopGeneration() {
   stopGeneration = true;
@@ -761,8 +1015,10 @@ function updateButtonStates(generating) {
   }
 }
 
-// 截图分析
-async function analyzeScreenshot() {
+// 选择截图范围并放入输入区，等待用户补充描述后发送
+async function attachScreenshot() {
+  if (!await ensureWorkDirectorySelected()) return;
+
   const selectedId = configSelect.value;
   if (!selectedId) {
     const msg = window.getFriendlyMessage('noConfig');
@@ -796,18 +1052,18 @@ async function analyzeScreenshot() {
     return;
   }
   
-  await window.electronAPI.setActiveConfig(selectedId);
-  
   screenshotBtn.disabled = true;
-  sendBtn.disabled = true;
   saveBtn.disabled = true;
-  userInput.disabled = true;
   
   const capturingMsg = window.getFriendlyMessage('screenshotCapturing');
   showStatus(capturingMsg.text, capturingMsg.type);
   
   try {
-    const captureResult = await window.electronAPI.captureScreen();
+    const captureResult = await window.electronAPI.selectScreenshotRegion();
+    if (captureResult.canceled) {
+      showStatus('已取消截图', 'info');
+      return;
+    }
     
     if (!captureResult.success) {
       const msg = window.getFriendlyMessage('screenshotFailed', captureResult.error);
@@ -815,53 +1071,27 @@ async function analyzeScreenshot() {
       return;
     }
     
-    const screenshot = captureResult.data;
-    addMessage('user', '📸 请分析这张屏幕截图', null, screenshot);
-    
-    showLoading();
-    const analyzingMsg = window.getFriendlyMessage('screenshotAnalyzing');
-    showStatus(analyzingMsg.text, analyzingMsg.type);
-    
-    const analysisResult = await window.electronAPI.analyzeScreenshot(screenshot);
-    hideLoading();
-    
-    if (analysisResult.success) {
-      const answer = analysisResult.content;
-      const model = analysisResult.model;
-      
-      await addMessageStreaming('assistant', answer, model);
-      
-      conversationHistory.push({
-        question: '📸 屏幕截图分析',
-        answer: answer,
-        model: model
-      });
-      
-      const successMsg = window.getFriendlyMessage('screenshotSuccess');
-      showStatus(successMsg.text, successMsg.type);
-    } else {
-      const friendlyError = window.formatApiError(analysisResult.error);
-      const msg = window.getFriendlyMessage('screenshotFailed', friendlyError);
-      addMessage('assistant', msg.text, '提示 💡');
-      showStatus(msg.text.split('\n')[0], msg.type);
-    }
+    setImageAttachment({
+      base64: captureResult.data,
+      mimeType: captureResult.mimeType || 'image/png'
+    });
+    showStatus('截图已放入输入区，可补充描述后发送', 'success');
+    userInput.focus();
   } catch (error) {
-    hideLoading();
-    console.error('截图分析失败:', error);
+    console.error('截图失败:', error);
     const friendlyError = window.formatApiError(error.message);
     const msg = window.getFriendlyMessage('screenshotFailed', friendlyError);
-    addMessage('assistant', msg.text, '提示 💡');
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
     screenshotBtn.disabled = false;
-    sendBtn.disabled = false;
     saveBtn.disabled = false;
-    userInput.disabled = false;
   }
 }
 
 // 保存对话
 async function saveConversation() {
+  if (!await ensureWorkDirectorySelected()) return;
+
   if (conversationHistory.length === 0) {
     const msg = window.getFriendlyMessage('noConversation');
     showStatus(msg.text, msg.type);
@@ -877,8 +1107,8 @@ async function saveConversation() {
     const result = await window.electronAPI.saveConversation(conversationHistory);
     
     if (result.success) {
-      const msg = window.getFriendlyMessage('saveSuccess', result.filename);
-      showStatus(msg.text.split('\n')[0], msg.type);
+      const msg = window.getFriendlyMessage('saveSuccess', result.filename, result.directory);
+      showStatus(msg.text, msg.type);
     } else {
       const msg = window.getFriendlyMessage('saveFailed', result.error);
       showStatus(msg.text.split('\n')[0], msg.type);
@@ -895,9 +1125,10 @@ async function saveConversation() {
 // 事件监听
 sendBtn.addEventListener('click', () => sendMessage(false));
 stopBtn.addEventListener('click', handleStopGeneration);
-screenshotBtn.addEventListener('click', analyzeScreenshot);
+screenshotBtn.addEventListener('click', attachScreenshot);
 settingsBtn.addEventListener('click', () => window.electronAPI.openSettings());
 saveBtn.addEventListener('click', saveConversation);
+removeImageAttachmentBtn.addEventListener('click', clearImageAttachment);
 
 configSelect.addEventListener('change', async () => {
   await updateConfigInfo();
@@ -915,6 +1146,7 @@ userInput.addEventListener('keydown', (e) => {
     sendMessage(false);
   }
 });
+userInput.addEventListener('paste', handleImagePaste);
 
 // 输入框自动调整高度
 function autoResizeTextarea() {

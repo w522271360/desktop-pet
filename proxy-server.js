@@ -1,5 +1,5 @@
 // Gemini API 中转站服务 - 集成在 Electron 应用中
-// 兼容 OpenAI API 格式，支持多 Key 自动切换，支持网络代理
+// 兼容 OpenAI API 格式，支持多 Key 自动切换
 // 更新于 2025年12月 - 支持最新 Gemini 3 系列模型
 
 const http = require('http');
@@ -58,24 +58,8 @@ class GeminiProxyServer {
     this.reasoningModels = [];
   }
 
-  /**
-   * 动态获取代理 Agent
-   */
   getProxyAgent() {
-    try {
-      const proxyConfig = store.getNetworkProxy ? store.getNetworkProxy() : null;
-      
-      if (!proxyConfig || !proxyConfig.enabled) {
-        return null;
-      }
-      
-      const { HttpsProxyAgent } = require('https-proxy-agent');
-      const proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
-      return new HttpsProxyAgent(proxyUrl);
-    } catch (err) {
-      console.error('❌ 创建代理 Agent 失败:', err.message);
-      return null;
-    }
+    return null;
   }
 
   /**

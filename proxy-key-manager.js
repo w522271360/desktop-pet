@@ -1,5 +1,4 @@
 // Gemini API Key 管理器 - 负责 Key 的轮询、状态管理和故障切换
-// 支持动态代理配置，无需重启
 
 const store = require('./store');
 
@@ -35,24 +34,8 @@ class GeminiKeyManager {
     this.recoveryInterval = null;
   }
   
-  /**
-   * 动态获取代理 Agent（每次调用时实时读取配置，无需重启）
-   */
   getProxyAgent() {
-    try {
-      const proxyConfig = store.getNetworkProxy ? store.getNetworkProxy() : null;
-      
-      if (!proxyConfig || !proxyConfig.enabled) {
-        return null;
-      }
-      
-      const { HttpsProxyAgent } = require('https-proxy-agent');
-      const proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
-      return new HttpsProxyAgent(proxyUrl);
-    } catch (err) {
-      console.error('❌ 创建代理 Agent 失败:', err.message);
-      return null;
-    }
+    return null;
   }
 
   /**
@@ -584,21 +567,17 @@ class GeminiKeyManager {
       });
 
       req.on('error', (err) => {
-        const proxyConfig = store.getNetworkProxy ? store.getNetworkProxy() : null;
-        const usingProxy = proxyConfig?.enabled;
         resolve({
           success: false,
-          error: `${err.message}${usingProxy ? ` (代理: ${proxyConfig.host}:${proxyConfig.port})` : ' (直连模式，可在设置中配置代理)'}`
+          error: `${err.message} (直连模式)`
         });
       });
 
       req.on('timeout', () => {
         req.destroy();
-        const proxyConfig = store.getNetworkProxy ? store.getNetworkProxy() : null;
-        const usingProxy = proxyConfig?.enabled;
         resolve({
           success: false,
-          error: `连接超时${usingProxy ? ` (代理: ${proxyConfig.host}:${proxyConfig.port})` : ' (直连模式，建议配置代理)'}`
+          error: '连接超时 (直连模式)'
         });
       });
 
