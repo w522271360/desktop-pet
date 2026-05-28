@@ -37,6 +37,10 @@ test('packages main-process helpers required at app startup', () => {
     'bubu pet spritesheet must be included in packaged desktop builds'
   );
   assert.ok(
+    packageJson.build.files.includes('assets/yier/**/*'),
+    'yier pet spritesheet must be included in packaged desktop builds'
+  );
+  assert.ok(
     packageJson.build.files.includes('renderer/**/*'),
     'screenshot selector and renderer assets must be included in packaged desktop builds'
   );

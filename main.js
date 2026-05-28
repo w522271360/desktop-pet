@@ -5,8 +5,6 @@ const axios = require('axios');
 const config = require('./config');
 const store = require('./store');
 const apiService = require('./api-service');
-const mcpClient = require('./mcp-client');
-const proxyServer = require('./proxy-server');
 const { notifyApiConfigsChanged } = require('./config-change-notifier');
 const { getImageExtension } = require('./generated-image-export');
 const { resolveConversationSavePath } = require('./conversation-save-path');
@@ -19,6 +17,8 @@ app.commandLine.appendSwitch('enable-experimental-web-platform-features');
 
 let petWindow = null;
 let chatWindow = null;
+let chatWindowReady = false;
+let pendingExternalPaste = null;
 let settingsWindow = null;
 let screenshotSelectorWindow = null;
 let reminderCheckTimer = null;
@@ -31,15 +31,6 @@ function ensureWorkDirectoryConfigured() {
   }
 
   return { success: false, error: workDirectoryRequiredError() };
-}
-
-// 格式化运行时间
-function formatUptime(seconds) {
-  if (seconds < 60) return `${seconds}秒`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟`;
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  return `${hours}小时${mins}分钟`;
 }
 
 // 获取应用图标路径（支持多种格式回退）
@@ -155,6 +146,7 @@ function createPetWindow() {
     frame: false,
     alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
+    focusable: true,
     skipTaskbar: true,
     webPreferences: {
       nodeIntegration: false,
@@ -227,9 +219,10 @@ function createChatWindow() {
     height: config.window.chatHeight,
     transparent: false,
     frame: true,
+    autoHideMenuBar: true,
     alwaysOnTop: false,
     resizable: true,
-    title: '私人小秘书',
+    title: '桌面小助手',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -243,6 +236,7 @@ function createChatWindow() {
   }
   
   chatWindow = new BrowserWindow(options);
+  chatWindowReady = false;
 
   chatWindow.loadFile('renderer/chat.html');
 
@@ -252,7 +246,18 @@ function createChatWindow() {
 
   chatWindow.on('closed', () => {
     chatWindow = null;
+    chatWindowReady = false;
   });
+}
+
+function openChatAndForwardPaste(payload) {
+  pendingExternalPaste = payload;
+  createChatWindow();
+
+  if (chatWindowReady && chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('external-paste', pendingExternalPaste);
+    pendingExternalPaste = null;
+  }
 }
 
 // 创建设置窗口
@@ -277,9 +282,10 @@ function createSettingsWindow() {
     height: config.window.settingsHeight,
     transparent: false,
     frame: true,
+    autoHideMenuBar: true,
     alwaysOnTop: false,
     resizable: true,
-    title: 'Yuns桌面助手 - 设置',
+    title: '桌面小助手 - 设置',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -544,6 +550,43 @@ ipcMain.on('open-chat', () => {
   createChatWindow();
 });
 
+ipcMain.on('paste-to-chat', () => {
+  const image = clipboard.readImage();
+  if (!image.isEmpty()) {
+    openChatAndForwardPaste({
+      type: 'image',
+      base64: image.toPNG().toString('base64'),
+      mimeType: 'image/png'
+    });
+    return;
+  }
+
+  const text = clipboard.readText();
+  if (text) {
+    openChatAndForwardPaste({ type: 'text', text });
+    return;
+  }
+
+  createChatWindow();
+});
+
+ipcMain.on('focus-pet-window', () => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+
+  petWindow.setFocusable(true);
+  if (!petWindow.isFocused()) {
+    petWindow.focus();
+  }
+});
+
+ipcMain.on('chat-ready-for-paste', () => {
+  chatWindowReady = true;
+
+  if (!pendingExternalPaste || !chatWindow || chatWindow.isDestroyed()) return;
+  chatWindow.webContents.send('external-paste', pendingExternalPaste);
+  pendingExternalPaste = null;
+});
+
 ipcMain.on('open-settings', () => {
   createSettingsWindow();
 });
@@ -768,6 +811,12 @@ ipcMain.on('update-pet-image', (event, imagePath) => {
   }
 });
 
+ipcMain.on('update-pet-character', (event, character) => {
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('pet-character-updated', character);
+  }
+});
+
 // 更新宠物大小
 ipcMain.on('update-pet-size', (event, size) => {
   if (petWindow && !petWindow.isDestroyed()) {
@@ -808,262 +857,6 @@ ipcMain.handle('select-directory', async () => {
     return { success: true, path: result.filePaths[0] };
   }
   return { success: false };
-});
-
-// ========== MCP 相关 IPC 处理 ==========
-
-// 获取 MCP 服务器列表
-ipcMain.handle('get-mcp-servers', () => {
-  return store.getMcpServers();
-});
-
-// 添加 MCP 服务器
-ipcMain.handle('add-mcp-server', (event, { serverConfig }) => {
-  return store.addMcpServer(serverConfig);
-});
-
-// 更新 MCP 服务器
-ipcMain.handle('update-mcp-server', (event, { id, updates }) => {
-  return store.updateMcpServer(id, updates);
-});
-
-// 删除 MCP 服务器
-ipcMain.handle('delete-mcp-server', (event, { id }) => {
-  store.deleteMcpServer(id);
-  return { success: true };
-});
-
-// 连接 MCP 服务器
-ipcMain.handle('connect-mcp-server', async (event, { serverConfig }) => {
-  return await mcpClient.connectServer(serverConfig);
-});
-
-// 断开 MCP 服务器
-ipcMain.handle('disconnect-mcp-server', async (event, { serverId }) => {
-  return await mcpClient.disconnectServer(serverId);
-});
-
-// 获取已连接的 MCP 服务器
-ipcMain.handle('get-connected-mcp-servers', () => {
-  return mcpClient.getConnectedServers();
-});
-
-// 获取所有可用的工具
-ipcMain.handle('get-mcp-tools', () => {
-  return mcpClient.allTools;
-});
-
-// 切换 MCP 功能
-ipcMain.handle('toggle-mcp', (event, { enabled }) => {
-  store.set('mcpEnabled', enabled);
-  return { success: true };
-});
-
-// 发送消息（带工具调用支持）
-ipcMain.handle('send-message-with-tools', async (event, { messages }) => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
-  return await apiService.sendMessageWithTools(messages, (toolCall) => {
-    // 将工具调用进度发送到渲染进程
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('tool-call-update', toolCall);
-    }
-  });
-});
-
-// ========== Gemini API 中转站相关 IPC 处理 ==========
-
-// 获取中转站配置
-ipcMain.handle('get-proxy-config', () => {
-  return store.getProxyConfig();
-});
-
-// 获取所有 Gemini Keys（包括 API 配置中同步的）
-ipcMain.handle('get-all-gemini-keys', () => {
-  return store.getAllGeminiKeys();
-});
-
-// 启动中转站
-ipcMain.handle('start-proxy-server', () => {
-  try {
-    const proxyConfig = store.getProxyConfig();
-    const allKeys = store.getAllGeminiKeys();
-    
-    if (allKeys.length === 0) {
-      return { success: false, error: '没有可用的 Gemini API Key，请先在 API 配置中添加 Gemini 配置' };
-    }
-    
-    proxyServer.start(allKeys, proxyConfig.port || 3001);
-    store.setProxyEnabled(true);
-    return { success: true, port: proxyConfig.port || 3001, keyCount: allKeys.length };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-// 停止中转站
-ipcMain.handle('stop-proxy-server', () => {
-  try {
-    proxyServer.stop();
-    store.setProxyEnabled(false);
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-// 获取中转站状态（增强版）
-ipcMain.handle('get-proxy-status', () => {
-  const rawStatus = proxyServer.getStatus();
-  
-  // 从 keys 获取 keyManager 状态
-  const keyManagerStatus = rawStatus.keys || {};
-  const keys = keyManagerStatus.keys || [];
-  
-  // 计算运行时间格式化
-  const uptimeFormatted = rawStatus.uptime > 0 
-    ? formatUptime(rawStatus.uptime) 
-    : '--';
-  
-  return {
-    running: rawStatus.running || false,
-    port: rawStatus.port || 3001,
-    uptime: rawStatus.uptime || 0,
-    uptimeFormatted: uptimeFormatted,
-    
-    // 汇总信息（直接从 keyManager 获取）
-    total: keyManagerStatus.total || 0,
-    available: keyManagerStatus.available || 0,
-    healthLevel: keyManagerStatus.healthLevel || 'healthy',
-    
-    // 统计信息
-    stats: {
-      totalRequests: keyManagerStatus.stats?.totalRequests || rawStatus.stats?.totalRequests || 0,
-      successfulRequests: keyManagerStatus.stats?.totalSuccesses || rawStatus.stats?.successfulRequests || 0,
-      failedRequests: keyManagerStatus.stats?.totalFailures || rawStatus.stats?.failedRequests || 0,
-      successRate: keyManagerStatus.stats?.successRate 
-        ? `${keyManagerStatus.stats.successRate}%` 
-        : (rawStatus.stats?.successRate || '100%')
-    },
-    
-    // 下次恢复时间
-    nextRecoveryTime: keyManagerStatus.nextRecoveryTime || null,
-    nextRecoveryFormatted: keyManagerStatus.nextRecoveryFormatted || null,
-    
-    // Key 详情（直接传递 keyManager 的 keys 数据）
-    keys: keys.map(k => ({
-      index: k.index,
-      keyPreview: k.keyPreview,
-      source: k.source,
-      configName: k.configName,
-      status: k.status,
-      
-      // 状态显示
-      statusEmoji: k.statusEmoji || (k.status === 'active' ? '🟢' : (k.status === 'cooldown' ? '🟡' : '🔴')),
-      statusText: k.statusText || k.status,
-      
-      // 统计 - 使用正确的字段名 totalRequests/totalSuccesses/totalFailures
-      totalRequests: k.totalRequests || 0,
-      totalSuccesses: k.totalSuccesses || 0,
-      totalFailures: k.totalFailures || 0,
-      successRate: k.successRate || 100,
-      avgResponseTime: k.avgResponseTime || 0,
-      
-      // 冷却信息
-      cooldownRemaining: k.cooldownFormatted || k.cooldownRemaining,
-      
-      // 错误信息
-      lastError: k.lastError,
-      lastErrorFormatted: k.lastErrorFormatted
-    })),
-    
-    // 限制配置
-    limits: { rpmLimit: 15, dailyLimit: 1500 }
-  };
-});
-
-// 测试单个 Key
-ipcMain.handle('test-proxy-key', async (event, { keyIndex }) => {
-  if (!proxyServer.isRunning) {
-    return { success: false, error: '中转站未运行' };
-  }
-  
-  const keyManager = proxyServer.getKeyManager();
-  return await keyManager.testKey(keyIndex);
-});
-
-// 重置单个 Key
-ipcMain.handle('reset-proxy-key', (event, { keyIndex }) => {
-  if (!proxyServer.isRunning) {
-    return { success: false, error: '中转站未运行' };
-  }
-  
-  const keyManager = proxyServer.getKeyManager();
-  return { success: keyManager.resetKey(keyIndex) };
-});
-
-// 添加额外的 Gemini Key（手动添加）
-ipcMain.handle('add-proxy-key', (event, { key }) => {
-  const keyObj = store.addProxyKey(key);
-  // 如果中转站正在运行，重新加载 Keys
-  if (proxyServer.isRunning) {
-    proxyServer.reloadKeys(store.getAllGeminiKeys());
-  }
-  return { success: true, key: keyObj };
-});
-
-// 删除手动添加的 Key
-ipcMain.handle('remove-proxy-key', (event, { keyId }) => {
-  store.removeProxyKey(keyId);
-  // 如果中转站正在运行，重新加载 Keys
-  if (proxyServer.isRunning) {
-    proxyServer.reloadKeys(store.getAllGeminiKeys());
-  }
-  return { success: true };
-});
-
-// 切换 Key 启用状态
-ipcMain.handle('toggle-proxy-key', (event, { keyId, enabled }) => {
-  store.toggleProxyKey(keyId, enabled);
-  // 如果中转站正在运行，重新加载 Keys
-  if (proxyServer.isRunning) {
-    proxyServer.reloadKeys(store.getAllGeminiKeys());
-  }
-  return { success: true };
-});
-
-// 设置中转站端口
-ipcMain.handle('set-proxy-port', (event, { port }) => {
-  store.setProxyPort(port);
-  return { success: true };
-});
-
-// 设置是否自动同步 API 配置
-ipcMain.handle('set-auto-sync-api-configs', (event, { enabled }) => {
-  store.setAutoSyncApiConfigs(enabled);
-  // 如果中转站正在运行，重新加载 Keys
-  if (proxyServer.isRunning) {
-    proxyServer.reloadKeys(store.getAllGeminiKeys());
-  }
-  return { success: true };
-});
-
-// 刷新中转站 Keys（当 API 配置变化时调用）
-ipcMain.handle('refresh-proxy-keys', () => {
-  if (proxyServer.isRunning) {
-    proxyServer.reloadKeys(store.getAllGeminiKeys());
-  }
-  return { success: true };
-});
-
-// 测试中转站连接
-ipcMain.handle('test-proxy-connection', async () => {
-  return await proxyServer.testConnection();
-});
-
-// 重置所有 Key
-ipcMain.handle('reset-all-proxy-keys', () => {
-  return proxyServer.resetAllKeys();
 });
 
 // ========== 提示词模板相关 IPC 处理 ==========
@@ -1202,7 +995,7 @@ function createCustomMenu() {
           }
         },
         { type: 'separator' },
-        { label: '关于 Yuns桌面助手', click: () => showAboutDialog() }
+        { label: '关于 桌面小助手', click: () => showAboutDialog() }
       ]
     }
   ];
@@ -1216,20 +1009,17 @@ function showAboutDialog() {
   const { dialog } = require('electron');
   dialog.showMessageBox({
     type: 'info',
-    title: '关于 Yuns桌面助手',
-    message: 'Yuns桌面助手',
-    detail: `版本: 2.0.0\n作者: 齐匀升\n\n一个智能的桌面AI助手，支持多模型对话和屏幕视觉分析。`,
+    title: '关于 桌面小助手',
+    message: '桌面小助手',
+    detail: `版本: 2.2.0\n作者: king.wang\n\n多模态桌面小助手。`,
     buttons: ['确定']
   });
 }
 
 // 应用生命周期
 app.whenReady().then(async () => {
-  // 创建自定义菜单（如果想隐藏菜单，注释这一行）
-  createCustomMenu();
-  
-  // 如果想完全隐藏菜单栏，取消下面这行的注释：
-  // Menu.setApplicationMenu(null);
+  // Windows 版本不显示原生菜单栏，避免顶部出现“文件/编辑/视图”等系统菜单。
+  Menu.setApplicationMenu(null);
   
   createPetWindow();
 
@@ -1240,31 +1030,6 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       createChatWindow();
     }, 500); // 延迟500ms，确保宠物窗口先加载完成
-  }
-
-  // 自动启动中转站（如果已启用）
-  const proxyConfig = store.getProxyConfig();
-  if (proxyConfig.enabled) {
-    const allKeys = store.getAllGeminiKeys();
-    if (allKeys.length > 0) {
-      console.log('🚀 自动启动 Gemini API 中转站...');
-      proxyServer.start(allKeys, proxyConfig.port || 3001);
-    } else {
-      console.log('⚠️ 中转站已启用但没有可用的 Gemini Key');
-    }
-  }
-
-  // 自动连接已启用的 MCP 服务器
-  const mcpEnabled = store.get('mcpEnabled', false);
-  if (mcpEnabled) {
-    console.log('🛠️ MCP 功能已启用，正在自动连接服务器...');
-    try {
-      await mcpClient.initializeFromConfig();
-      const connectedServers = mcpClient.getConnectedServers();
-      console.log(`✅ 已自动连接 ${connectedServers.length} 个 MCP 服务器`);
-    } catch (error) {
-      console.error('❌ MCP 自动连接失败:', error.message);
-    }
   }
 
   startReminderScheduler();
@@ -1285,17 +1050,6 @@ app.on('window-all-closed', () => {
 // 应用退出时清理
 app.on('before-quit', async () => {
   stopReminderScheduler();
-
-  // 停止中转站
-  proxyServer.stop();
-  
-  // 断开所有 MCP 连接
-  try {
-    await mcpClient.closeAll();
-    console.log('🛠️ 已断开所有 MCP 连接');
-  } catch (error) {
-    console.error('MCP 断开失败:', error.message);
-  }
   
   console.log('👋 应用正在退出...');
 });

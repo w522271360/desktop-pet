@@ -6,6 +6,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openChat: () => {
     ipcRenderer.send('open-chat');
   },
+
+  pasteToChat: () => {
+    ipcRenderer.send('paste-to-chat');
+  },
+
+  focusPetWindow: () => {
+    ipcRenderer.send('focus-pet-window');
+  },
   
   openSettings: () => {
     ipcRenderer.send('open-settings');
@@ -157,143 +165,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return await ipcRenderer.invoke('store-delete', key);
   },
   
-  // ========== MCP 相关 API ==========
-  
-  // MCP 服务器管理
-  getMcpServers: async () => {
-    return await ipcRenderer.invoke('get-mcp-servers');
-  },
-  
-  addMcpServer: async (serverConfig) => {
-    return await ipcRenderer.invoke('add-mcp-server', { serverConfig });
-  },
-  
-  updateMcpServer: async (id, updates) => {
-    return await ipcRenderer.invoke('update-mcp-server', { id, updates });
-  },
-  
-  deleteMcpServer: async (id) => {
-    return await ipcRenderer.invoke('delete-mcp-server', { id });
-  },
-  
-  // MCP 连接管理
-  connectMcpServer: async (serverConfig) => {
-    return await ipcRenderer.invoke('connect-mcp-server', { serverConfig });
-  },
-  
-  disconnectMcpServer: async (serverId) => {
-    return await ipcRenderer.invoke('disconnect-mcp-server', { serverId });
-  },
-  
-  getConnectedMcpServers: async () => {
-    return await ipcRenderer.invoke('get-connected-mcp-servers');
-  },
-  
-  getMcpTools: async () => {
-    return await ipcRenderer.invoke('get-mcp-tools');
-  },
-  
-  // MCP 功能开关
-  toggleMcp: async (enabled) => {
-    return await ipcRenderer.invoke('toggle-mcp', { enabled });
-  },
-  
-  // 带工具调用的消息发送
-  sendMessageWithTools: async (messages) => {
-    return await ipcRenderer.invoke('send-message-with-tools', { messages });
-  },
-  
-  // 监听工具调用更新
-  onToolCallUpdate: (callback) => {
-    ipcRenderer.on('tool-call-update', (event, data) => callback(data));
-  },
-  
-  removeToolCallUpdateListener: () => {
-    ipcRenderer.removeAllListeners('tool-call-update');
-  },
-  
-  // ========== Gemini API 中转站相关 API ==========
-  
-  // 获取中转站配置
-  getProxyConfig: async () => {
-    return await ipcRenderer.invoke('get-proxy-config');
-  },
-  
-  // 获取所有 Gemini Keys（包括 API 配置中同步的）
-  getAllGeminiKeys: async () => {
-    return await ipcRenderer.invoke('get-all-gemini-keys');
-  },
-  
-  // 启动中转站
-  startProxyServer: async () => {
-    return await ipcRenderer.invoke('start-proxy-server');
-  },
-  
-  // 停止中转站
-  stopProxyServer: async () => {
-    return await ipcRenderer.invoke('stop-proxy-server');
-  },
-  
-  // 获取中转站状态
-  getProxyStatus: async () => {
-    return await ipcRenderer.invoke('get-proxy-status');
-  },
-  
-  // 添加额外的 Gemini Key（手动添加）
-  addProxyKey: async (key) => {
-    return await ipcRenderer.invoke('add-proxy-key', { key });
-  },
-  
-  // 删除手动添加的 Key
-  removeProxyKey: async (keyId) => {
-    return await ipcRenderer.invoke('remove-proxy-key', { keyId });
-  },
-  
-  // 切换 Key 启用状态
-  toggleProxyKey: async (keyId, enabled) => {
-    return await ipcRenderer.invoke('toggle-proxy-key', { keyId, enabled });
-  },
-  
-  // 设置中转站端口
-  setProxyPort: async (port) => {
-    return await ipcRenderer.invoke('set-proxy-port', { port });
-  },
-  
-  // 设置是否自动同步 API 配置
-  setAutoSyncApiConfigs: async (enabled) => {
-    return await ipcRenderer.invoke('set-auto-sync-api-configs', { enabled });
-  },
-  
-  // 刷新中转站 Keys
-  refreshProxyKeys: async () => {
-    return await ipcRenderer.invoke('refresh-proxy-keys');
-  },
-  
-  // 测试中转站连接
-  testProxyConnection: async () => {
-    return await ipcRenderer.invoke('test-proxy-connection');
-  },
-  
-  // 测试单个 Key
-  testProxyKey: async (keyIndex) => {
-    return await ipcRenderer.invoke('test-proxy-key', { keyIndex });
-  },
-  
-  // 重置单个 Key
-  resetProxyKey: async (keyIndex) => {
-    return await ipcRenderer.invoke('reset-proxy-key', { keyIndex });
-  },
-  
-  // 重置所有 Key
-  resetAllProxyKeys: async () => {
-    return await ipcRenderer.invoke('reset-all-proxy-keys');
-  },
-  
   // ========== 宠物相关 API ==========
   
   // 更新宠物图片
   updatePetImage: (imagePath) => {
     ipcRenderer.send('update-pet-image', imagePath);
+  },
+
+  updatePetCharacter: (character) => {
+    ipcRenderer.send('update-pet-character', character);
   },
   
   // 更新宠物大小
@@ -304,6 +184,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 监听宠物图片更新
   onPetImageUpdated: (callback) => {
     ipcRenderer.on('pet-image-updated', (event, imagePath) => callback(imagePath));
+  },
+
+  onPetCharacterUpdated: (callback) => {
+    ipcRenderer.on('pet-character-updated', (event, character) => callback(character));
   },
   
   // 监听宠物大小更新
@@ -338,6 +222,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 监听聊天字体大小更新
   onChatFontSizeUpdated: (callback) => {
     ipcRenderer.on('chat-font-size-updated', (event, fontSize) => callback(fontSize));
+  },
+
+  onExternalPaste: (callback) => {
+    ipcRenderer.on('external-paste', (event, payload) => callback(payload));
+  },
+
+  notifyChatReadyForPaste: () => {
+    ipcRenderer.send('chat-ready-for-paste');
   },
   
   // ========== 主题相关 API ==========

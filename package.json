@@ -1,8 +1,8 @@
 {
   "name": "ai-desktop-pet",
-  "productName": "Yuns桌面助手",
+  "productName": "桌面小助手",
   "version": "2.2.0",
-  "description": "智能桌面宠物 - Yuns多模型对话助手 + MCP工具调用",
+  "description": "多模态桌面小助手",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -20,14 +20,10 @@
     "desktop-pet",
     "deepseek",
     "gemini",
-    "vision",
-    "mcp",
-    "function-calling"
+    "vision"
   ],
   "author": {
-    "name": "齐匀升",
-    "email": "qiyunsheng919@gmail.com",
-    "url": "https://github.com/JianguSheng"
+    "name": "king.wang"
   },
   "license": "MIT",
   "devDependencies": {
@@ -35,14 +31,12 @@
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.1",
     "axios": "^1.6.0",
-    "electron-store": "^8.1.0",
-    "express": "^4.18.2"
+    "electron-store": "^8.1.0"
   },
   "build": {
-    "appId": "com.yuns.desktop-pet",
-    "productName": "Yuns桌面助手",
+    "appId": "com.king.desktop-helper",
+    "productName": "桌面小助手",
     "directories": {
       "output": "dist"
     },
@@ -62,12 +56,10 @@
       "config/prompt-templates.json",
       "store.js",
       "api-service.js",
-      "mcp-client.js",
-      "proxy-server.js",
-      "proxy-key-manager.js",
       "package.json",
       "renderer/**/*",
       "assets/bubu/**/*",
+      "assets/yier/**/*",
       "assets/shiba.jpg",
       "assets/icon.png",
       "node_modules/**/*",
@@ -93,7 +85,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Yuns桌面助手",
+      "shortcutName": "桌面小助手",
       "installerLanguages": [
         "zh_CN",
         "en_US"
@@ -101,7 +93,7 @@
       "language": "2052"
     },
     "portable": {
-      "artifactName": "Yuns桌面助手-便携版.exe"
+      "artifactName": "桌面小助手-便携版.exe"
     }
   }
 }

@@ -18,7 +18,7 @@ const mainJsPath = path.join(__dirname, 'main.js');
 const mode = process.argv[2] || 'custom';
 
 console.log('='.repeat(50));
-console.log('Yuns桌面助手 - 菜单模式切换工具');
+console.log('桌面小助手 - 菜单模式切换工具');
 console.log('='.repeat(50));
 
 // 读取main.js
@@ -122,4 +122,3 @@ console.log('  node toggle-menu.js hide     - 隐藏菜单');
 console.log('  node toggle-menu.js minimal  - 极简菜单');
 console.log('  node toggle-menu.js custom   - 自定义菜单');
 console.log('='.repeat(50));
-

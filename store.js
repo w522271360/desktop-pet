@@ -8,10 +8,11 @@ function generateId() {
 
 const store = new Store({
   // 固定存储名称，防止应用名更改后丢失数据
-  name: 'yuns-desktop-pet-config',
+  name: 'desktop-helper-config',
   defaults: {
     // 宠物配置
     petImagePath: null,
+    petCharacter: 'bubu',
     alwaysOnTop: false,
     
     // 主题配置
@@ -27,33 +28,7 @@ const store = new Store({
     apiConfigs: [],
     
     // 当前激活的配置ID（默认无）
-    activeConfigId: null,
-    
-    // MCP 服务器配置列表
-    mcpServers: [
-      // 示例配置（默认禁用）
-      // {
-      //   id: 'filesystem',
-      //   name: '文件系统',
-      //   command: 'npx',
-      //   args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:/'],
-      //   env: {},
-      //   enabled: false
-      // }
-    ],
-    
-    // MCP 功能开关
-    mcpEnabled: false,
-    
-    // API 中转站配置（仅 Gemini，自动同步 API 配置）
-    proxyConfig: {
-      enabled: false,
-      port: 3001,
-      // Gemini Keys 池（额外手动添加的 Key）
-      geminiKeys: [],
-      // 是否自动同步 API 配置中的 Gemini Key
-      autoSyncApiConfigs: true
-    }
+    activeConfigId: null
   }
 });
 
@@ -106,149 +81,6 @@ store.setActiveConfig = function(id) {
     return true;
   }
   return false;
-};
-
-// ========== MCP 服务器管理方法 ==========
-
-store.getMcpServers = function() {
-  return this.get('mcpServers', []);
-};
-
-store.addMcpServer = function(serverConfig) {
-  const servers = this.get('mcpServers', []);
-  const newServer = {
-    id: generateId(),
-    enabled: false,
-    ...serverConfig
-  };
-  servers.push(newServer);
-  this.set('mcpServers', servers);
-  return newServer;
-};
-
-store.updateMcpServer = function(id, updates) {
-  const servers = this.get('mcpServers', []);
-  const index = servers.findIndex(s => s.id === id);
-  if (index !== -1) {
-    servers[index] = { ...servers[index], ...updates };
-    this.set('mcpServers', servers);
-    return servers[index];
-  }
-  return null;
-};
-
-store.deleteMcpServer = function(id) {
-  const servers = this.get('mcpServers', []);
-  const filtered = servers.filter(s => s.id !== id);
-  this.set('mcpServers', filtered);
-};
-
-store.toggleMcpServer = function(id, enabled) {
-  const servers = this.get('mcpServers', []);
-  const index = servers.findIndex(s => s.id === id);
-  if (index !== -1) {
-    servers[index].enabled = enabled;
-    this.set('mcpServers', servers);
-    return servers[index];
-  }
-  return null;
-};
-
-// ========== API 中转站管理方法（仅 Gemini）==========
-
-store.getProxyConfig = function() {
-  return this.get('proxyConfig', {
-    enabled: false,
-    port: 3001,
-    geminiKeys: [],
-    autoSyncApiConfigs: true
-  });
-};
-
-store.setProxyEnabled = function(enabled) {
-  const config = this.getProxyConfig();
-  config.enabled = enabled;
-  this.set('proxyConfig', config);
-};
-
-store.setProxyPort = function(port) {
-  const config = this.getProxyConfig();
-  config.port = port;
-  this.set('proxyConfig', config);
-};
-
-// 添加额外的 Gemini Key（手动添加）
-store.addProxyKey = function(key) {
-  const config = this.getProxyConfig();
-  const keyObj = {
-    id: generateId(),
-    key: key,
-    addedAt: Date.now(),
-    enabled: true,
-    source: 'manual' // 标记为手动添加
-  };
-  
-  config.geminiKeys.push(keyObj);
-  this.set('proxyConfig', config);
-  return keyObj;
-};
-
-// 删除手动添加的 Key
-store.removeProxyKey = function(keyId) {
-  const config = this.getProxyConfig();
-  config.geminiKeys = config.geminiKeys.filter(k => k.id !== keyId);
-  this.set('proxyConfig', config);
-};
-
-// 切换 Key 启用状态
-store.toggleProxyKey = function(keyId, enabled) {
-  const config = this.getProxyConfig();
-  const index = config.geminiKeys.findIndex(k => k.id === keyId);
-  if (index !== -1) {
-    config.geminiKeys[index].enabled = enabled;
-    this.set('proxyConfig', config);
-  }
-};
-
-// 获取所有可用的 Gemini Keys（合并 API 配置 + 手动添加）
-store.getAllGeminiKeys = function() {
-  const proxyConfig = this.getProxyConfig();
-  const allKeys = [];
-  
-  // 1. 从 API 配置中获取 Gemini Keys（如果启用自动同步）
-  if (proxyConfig.autoSyncApiConfigs) {
-    const apiConfigs = this.get('apiConfigs', []);
-    apiConfigs
-      .filter(c => c.provider === 'gemini' && c.apiKey && c.enabled)
-      .forEach(c => {
-        allKeys.push({
-          id: 'api-' + c.id,
-          key: c.apiKey,
-          source: 'api-config',
-          configName: c.name,
-          enabled: true
-        });
-      });
-  }
-  
-  // 2. 添加手动添加的 Keys
-  proxyConfig.geminiKeys
-    .filter(k => k.enabled)
-    .forEach(k => {
-      allKeys.push({
-        ...k,
-        source: k.source || 'manual'
-      });
-    });
-  
-  return allKeys;
-};
-
-// 设置是否自动同步 API 配置
-store.setAutoSyncApiConfigs = function(enabled) {
-  const config = this.getProxyConfig();
-  config.autoSyncApiConfigs = enabled;
-  this.set('proxyConfig', config);
 };
 
 // ========== 提示词模板管理方法 ==========

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>设置 - Yuns桌面助手</title>
+  <title>设置 - 桌面小助手</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
@@ -153,10 +153,13 @@
             <h3>桌面宠物</h3>
             <div class="setting-item">
               <div class="setting-info">
-                <label>宠物图片</label>
-                <p class="setting-desc">当前使用：柴犬照片（可拖拽图片到宠物上更换）</p>
+                <label>宠物形象</label>
+                <p class="setting-desc">选择桌面宠物显示为一二或布布</p>
               </div>
-              <button class="secondary-btn" id="reset-pet-image">重置为默认</button>
+              <select id="pet-character" class="setting-select">
+                <option value="bubu" selected>布布</option>
+                <option value="yier">一二</option>
+              </select>
             </div>
             
             <div class="setting-item">

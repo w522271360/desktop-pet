@@ -503,18 +503,18 @@ module.exports = {
       }
     },
 
-    // ========== 自定义 API / 中转站 ==========
+    // ========== 自定义 API ==========
     custom: {
       name: '自定义 API',
       icon: 'custom',
       brandColor: '#6B7280',
       defaultApiUrl: 'https://your-api-endpoint.com/v1/chat/completions',
       models: [
-        // ===== OpenAI 系列（中转站最常用）=====
+        // ===== OpenAI 系列 =====
         { 
           id: 'gpt-4o', 
           name: '⭐ GPT-4o', 
-          description: 'OpenAI 最新旗舰，中转站最常用',
+          description: 'OpenAI 最新旗舰',
           recommended: true
         },
         { 
@@ -569,7 +569,7 @@ module.exports = {
         { 
           id: '__custom_input__', 
           name: '📝 手动输入模型 ID...', 
-          description: '输入中转站支持的任意模型',
+          description: '输入当前 API 服务支持的任意模型',
           isCustomInput: true
         }
       ],

@@ -305,6 +305,8 @@
     const reminderAck = document.getElementById('reminder-ack');
     const fallbackElectronAPI = {
       openChat: () => {},
+      pasteToChat: () => {},
+      focusPetWindow: () => {},
       openSettings: () => {},
       restartApp: () => {},
       quitApp: () => {},
@@ -318,6 +320,7 @@
       onReminderDue: () => {},
       onReminderCleared: () => {},
       onPetImageUpdated: () => {},
+      onPetCharacterUpdated: () => {},
       onPetSizeUpdated: () => {}
     };
     const petAPI = { ...fallbackElectronAPI, ...(window.electronAPI || {}) };
@@ -332,6 +335,16 @@
 
     const spriteColumns = 8;
     const spriteRows = 9;
+    const petCharacters = {
+      bubu: {
+        label: '布布',
+        spritesheet: '../assets/bubu/spritesheet.webp'
+      },
+      yier: {
+        label: '一二',
+        spritesheet: '../assets/yier/spritesheet.webp'
+      }
+    };
     const petStates = {
       idle: { row: 0, frames: 6, fps: 5 },
       'running-right': { row: 1, frames: 8, fps: 12 },
@@ -352,7 +365,15 @@
     let isDraggingWindow = false;
     let lastDragX = 0;
     let suppressNextClick = false;
+    let isPetHovered = false;
     let activeReminder = null;
+
+    function applyPetCharacter(character) {
+      const petCharacter = petCharacters[character] || petCharacters.bubu;
+      petSprite.style.backgroundImage = `url("${petCharacter.spritesheet}")`;
+      petSprite.setAttribute('aria-label', petCharacter.label);
+      renderFrame();
+    }
 
     function formatReminderTime(value) {
       const date = new Date(value);
@@ -464,6 +485,11 @@
     }
 
     function activateHoverState() {
+      if (!isPetHovered || !document.hasFocus()) {
+        isPetHovered = true;
+        petAPI.focusPetWindow();
+      }
+
       if (!isMouseDown) {
         setPetState('jumping', { replay: true });
         logInteraction('hover');
@@ -475,6 +501,7 @@
     petImage.addEventListener('mousemove', activateHoverState);
 
     petImage.addEventListener('mouseleave', () => {
+      isPetHovered = false;
       if (!isMouseDown) {
         setPetState('idle');
       }
@@ -547,6 +574,18 @@
       event.preventDefault();
       event.stopPropagation();
       suppressNextClick = false;
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (!isPetHovered) return;
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        event.stopPropagation();
+        playMomentaryState('waving', 700);
+        logInteraction('paste-to-chat');
+        petAPI.pasteToChat();
+      }
     });
 
     window.addEventListener('blur', () => {
@@ -634,6 +673,11 @@
       playMomentaryState(imagePath ? 'review' : 'waving', 900);
     });
 
+    petAPI.onPetCharacterUpdated((character) => {
+      applyPetCharacter(character);
+      playMomentaryState('waving', 900);
+    });
+
     petAPI.onPetSizeUpdated((imageSize) => {
       document.documentElement.style.setProperty('--pet-size', `${imageSize}px`);
     });
@@ -647,6 +691,12 @@
       document.documentElement.style.setProperty('--pet-size', `${sizes[size] || sizes.medium}px`);
     }
 
+    async function loadSavedPetCharacter() {
+      const character = await petAPI.storeGet('petCharacter') || 'bubu';
+      applyPetCharacter(character);
+    }
+
+    loadSavedPetCharacter();
     loadSavedPetSize();
     setPetState('idle');
   </script>

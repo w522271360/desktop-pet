@@ -32,7 +32,6 @@ let conversationHistory = [];
 let apiMessages = [];
 let apiConfigs = [];
 let appConfig = null;
-let mcpEnabled = false;
 let pendingImageAttachment = null;
 let assistantNickname = '小秘书';
 let userDisplayName = '';
@@ -54,7 +53,6 @@ let programmaticScroll = false; // 标记是否是程序触发的滚动
 async function initializeApp() {
   appConfig = await window.electronAPI.getConfig();
   await loadConfigs();
-  await loadMcpStatus();
   
   // 加载并应用主题
   await loadTheme();
@@ -68,9 +66,6 @@ async function initializeApp() {
   
   // 监听字体大小变化
   window.electronAPI.onChatFontSizeUpdated(applyFontSize);
-  
-  // 监听 MCP 工具调用更新
-  window.electronAPI.onToolCallUpdate(handleToolCallUpdate);
 
   // 刷新已打开聊天窗口中的配置选择器
   window.electronAPI.onApiConfigsChanged(loadConfigs);
@@ -300,175 +295,6 @@ function forceScrollToBottom() {
   });
 }
 
-// 加载 MCP 状态
-async function loadMcpStatus() {
-  mcpEnabled = await window.electronAPI.storeGet('mcpEnabled') || false;
-  
-  if (mcpEnabled) {
-    const connectedServers = await window.electronAPI.getConnectedMcpServers();
-    if (connectedServers.length > 0) {
-      const totalTools = connectedServers.reduce((sum, s) => sum + (s.toolCount || 0), 0);
-      console.log(`MCP 已启用，${connectedServers.length} 个服务器，${totalTools} 个工具可用`);
-    }
-  }
-}
-
-// 处理工具调用更新
-function handleToolCallUpdate(data) {
-  if (data.type === 'calling') {
-    addToolCallMessage('calling', data.toolName, data.args);
-  } else if (data.type === 'result') {
-    addToolCallMessage('result', data.toolName, data.result, data.success);
-  }
-}
-
-// 添加工具调用消息 - 极简版
-function addToolCallMessage(type, toolName, content, success = true) {
-  const messageDiv = document.createElement('div');
-  const displayName = formatToolName(toolName);
-  const friendlyName = getToolFriendlyName(displayName);
-  const toolIcon = getToolIcon(displayName);
-  
-  if (type === 'calling') {
-    messageDiv.className = 'message tool-call calling';
-    const paramsStr = formatToolParams(content);
-    const hasParams = paramsStr && paramsStr.length > 0;
-    
-    messageDiv.innerHTML = `
-      <div class="tool-header" onclick="this.parentElement.classList.toggle('expanded')">
-        <div class="tool-header-icon">${toolIcon}</div>
-        <div class="tool-header-info">
-          <div class="tool-header-title">${friendlyName}</div>
-          <div class="tool-header-subtitle"><code>执行中...</code></div>
-        </div>
-        ${hasParams ? `
-        <div class="tool-expand-indicator">
-          <span>参数</span>
-          <span class="tool-expand-arrow">▼</span>
-        </div>
-        ` : ''}
-      </div>
-      <div class="tool-loading-bar"></div>
-      ${hasParams ? `
-      <div class="tool-body">
-        <div class="tool-section">
-          <div class="tool-section-content">${escapeHtml(paramsStr)}</div>
-        </div>
-      </div>
-      ` : ''}
-    `;
-  } else {
-    messageDiv.className = `message tool-call ${success ? 'result-success' : 'result-error'}`;
-    const outputStr = formatToolOutput(content);
-    
-    messageDiv.innerHTML = `
-      <div class="tool-header" onclick="this.parentElement.classList.toggle('expanded')">
-        <div class="tool-header-icon">${success ? '✓' : '✕'}</div>
-        <div class="tool-header-info">
-          <div class="tool-header-title">${friendlyName}</div>
-          <div class="tool-header-subtitle"><code>${success ? '已完成' : '出错了'}</code></div>
-        </div>
-        <div class="tool-expand-indicator">
-          <span>结果</span>
-          <span class="tool-expand-arrow">▼</span>
-        </div>
-      </div>
-      <div class="tool-body">
-        <div class="tool-section">
-          <div class="tool-section-content">${escapeHtml(outputStr)}</div>
-        </div>
-      </div>
-    `;
-  }
-  
-  messagesContainer.appendChild(messageDiv);
-  smartScrollToBottom();
-}
-
-// 获取工具图标
-function getToolIcon(name) {
-  const icons = {
-    'list_directory': '📁',
-    'list_allowed_directories': '📂',
-    'read_file': '📄',
-    'write_file': '✏️',
-    'create_directory': '📁',
-    'move_file': '📦',
-    'search_files': '🔍',
-    'get_file_info': '📋',
-    'execute_command': '⌨️',
-    'fetch': '🌐',
-    'puppeteer_navigate': '🌐',
-    'puppeteer_screenshot': '📸',
-    'puppeteer_click': '👆',
-    'puppeteer_fill': '⌨️',
-    'puppeteer_evaluate': '⚡',
-    'get_news': '📰',
-    'search_news': '🔎',
-    'store': '💾',
-    'retrieve': '📥'
-  };
-  return icons[name] || '🔧';
-}
-
-// 格式化工具名称
-function formatToolName(name) {
-  const parts = name.split('__');
-  return parts.length > 1 ? parts.slice(1).join('__') : name;
-}
-
-// 获取工具友好名称
-function getToolFriendlyName(name) {
-  const friendlyNames = {
-    'list_directory': '📁 列出目录',
-    'list_allowed_directories': '📂 可访问目录',
-    'read_file': '📄 读取文件',
-    'write_file': '✏️ 写入文件',
-    'create_directory': '📁 创建目录',
-    'move_file': '📦 移动文件',
-    'search_files': '🔍 搜索文件',
-    'get_file_info': '📋 文件信息',
-    'execute_command': '💻 执行命令',
-    'fetch': '🌐 网络请求'
-  };
-  return friendlyNames[name] || name;
-}
-
-// 格式化工具参数
-function formatToolParams(params) {
-  if (!params || (typeof params === 'object' && Object.keys(params).length === 0)) {
-    return '';
-  }
-  
-  if (typeof params === 'string') {
-    return params;
-  }
-  
-  const lines = [];
-  for (const [key, value] of Object.entries(params)) {
-    const displayValue = typeof value === 'string' ? value : JSON.stringify(value);
-    lines.push(`${key}: ${displayValue}`);
-  }
-  return lines.join('\n');
-}
-
-// 格式化工具输出
-function formatToolOutput(output) {
-  if (!output) return '(无输出)';
-  const maxLength = 2000;
-  if (output.length > maxLength) {
-    return output.substring(0, maxLength) + '\n\n... (输出已截断)';
-  }
-  return output;
-}
-
-// 转义 HTML
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // 加载配置列表
 async function loadConfigs() {
   apiConfigs = await window.electronAPI.getApiConfigs();
@@ -563,6 +389,35 @@ function clearImageAttachment() {
   pendingImageAttachment = null;
   imageAttachmentThumbnail.removeAttribute('src');
   imageAttachmentPreview.classList.add('hidden');
+}
+
+function insertTextAtCursor(text) {
+  const start = userInput.selectionStart ?? userInput.value.length;
+  const end = userInput.selectionEnd ?? userInput.value.length;
+  userInput.value = `${userInput.value.slice(0, start)}${text}${userInput.value.slice(end)}`;
+  const cursor = start + text.length;
+  userInput.setSelectionRange(cursor, cursor);
+  autoResizeTextarea();
+  userInput.focus();
+}
+
+function handleExternalPaste(payload) {
+  if (!payload) return;
+
+  if (payload.type === 'image' && payload.base64) {
+    setImageAttachment({
+      base64: payload.base64,
+      mimeType: payload.mimeType || 'image/png'
+    });
+    showStatus('已从剪贴板粘贴图片，输入问题后发送即可', 'success');
+    userInput.focus();
+    return;
+  }
+
+  if (payload.type === 'text' && payload.text) {
+    insertTextAtCursor(payload.text);
+    showStatus('已从剪贴板粘贴到输入框', 'success');
+  }
 }
 
 function getImageSource(image) {
@@ -794,19 +649,13 @@ async function sendMessage(isRegenerate = false) {
   try {
     await loadPersonalizationSettings();
     const requestMessages = buildPersonalizedMessages(apiMessages);
-    const response = mcpEnabled 
-      ? await window.electronAPI.sendMessageWithTools(requestMessages)
-      : await window.electronAPI.sendMessage(requestMessages);
+    const response = await window.electronAPI.sendMessage(requestMessages);
     
     hideLoading();
     
     if (response.success) {
       const answer = response.content;
       const model = response.model;
-      
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        showStatus(`🛠️ 使用了 ${response.toolCalls.length} 个工具`, 'info');
-      }
       
       const result = await addMessageStreaming('assistant', answer, model);
       const displayedAnswer = result.displayedContent || answer;
@@ -1223,4 +1072,6 @@ function applyTemplate(template) {
 
 // 初始化
 userInput.focus();
+window.electronAPI.onExternalPaste(handleExternalPaste);
+window.electronAPI.notifyChatReadyForPaste();
 initializeApp();

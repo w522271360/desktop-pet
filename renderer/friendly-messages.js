@@ -155,7 +155,7 @@ const FriendlyMessages = {
   // ============ 欢迎和帮助 ============
   
   welcome: {
-    text: '主人 你好呀！我是你的私人小秘书~\n\n问我点什么吧！',
+    text: '主人 你好呀！我是你的桌面小助手~\n\n问我点什么吧！',
     type: 'success'
   },
   
