@@ -28,7 +28,7 @@
     <aside id="history-sidebar" class="history-sidebar collapsed" aria-label="对话记录">
       <div class="history-header">
         <h2>对话记录</h2>
-        <button id="history-close-btn" class="history-icon-btn" title="收起">›</button>
+        <button id="history-close-btn" class="history-icon-btn" title="收起">‹</button>
       </div>
       <button id="new-conversation-btn" class="new-conversation-btn" type="button">新对话</button>
       <div id="history-list" class="history-list"></div>
@@ -58,18 +58,17 @@
       <div class="input-wrapper">
         <textarea 
           id="user-input" 
-          placeholder="输入问题，或粘贴图片... (Ctrl+Enter 发送)"
+          placeholder="输入问题，或粘贴图片... (Enter 发送，Shift+Enter 换行)"
           rows="1"
         ></textarea>
         <div class="input-actions">
           <button id="screenshot-btn" class="input-icon-btn" title="截图分析">📸</button>
-          <button id="save-btn" class="input-icon-btn" title="保存对话">💾</button>
         </div>
       </div>
       <div class="send-area">
         <button id="send-btn" class="send-btn">
           <span>发送</span>
-          <span class="send-shortcut">Ctrl+↵</span>
+          <span class="send-shortcut">Enter</span>
         </button>
         <button id="stop-btn" class="stop-btn hidden">
           <span>⏹️ 停止生成</span>

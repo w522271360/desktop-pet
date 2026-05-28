@@ -2,7 +2,6 @@
 const messagesContainer = document.getElementById('messages');
 const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
-const saveBtn = document.getElementById('save-btn');
 const screenshotBtn = document.getElementById('screenshot-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const historyToggleBtn = document.getElementById('history-toggle-btn');
@@ -39,6 +38,7 @@ let apiMessages = [];
 let conversationRecords = [];
 let currentConversationId = null;
 let currentConversationTitle = '新对话';
+let renamingConversationId = null;
 let apiConfigs = [];
 let appConfig = null;
 let pendingImageAttachment = null;
@@ -195,21 +195,50 @@ function renderConversationRecords() {
     item.className = `history-item${record.id === currentConversationId ? ' active' : ''}`;
     item.dataset.id = record.id;
 
-    const main = document.createElement('button');
-    main.type = 'button';
+    const isRenaming = record.id === renamingConversationId;
+    const main = document.createElement(isRenaming ? 'div' : 'button');
+    if (!isRenaming) {
+      main.type = 'button';
+    }
     main.className = 'history-item-main';
     main.title = record.title;
-    main.addEventListener('click', () => loadConversation(record.id));
+    if (!isRenaming) {
+      main.addEventListener('click', () => loadConversation(record.id));
+    }
 
-    const title = document.createElement('span');
-    title.className = 'history-item-title';
-    title.textContent = record.title;
+    if (isRenaming) {
+      const input = document.createElement('input');
+      input.className = 'history-title-input';
+      input.value = record.title;
+      input.addEventListener('click', event => event.stopPropagation());
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitRenameConversation(record, input.value);
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          renamingConversationId = null;
+          renderConversationRecords();
+        }
+      });
+      input.addEventListener('blur', () => commitRenameConversation(record, input.value));
+      main.appendChild(input);
+      requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+      });
+    } else {
+      const title = document.createElement('span');
+      title.className = 'history-item-title';
+      title.textContent = record.title;
+      main.appendChild(title);
+    }
 
     const meta = document.createElement('span');
     meta.className = 'history-item-meta';
     meta.textContent = formatConversationTime(record.updatedAt);
 
-    main.appendChild(title);
     main.appendChild(meta);
 
     const actions = document.createElement('div');
@@ -222,7 +251,7 @@ function renderConversationRecords() {
     renameBtn.title = '重命名';
     renameBtn.addEventListener('click', (event) => {
       event.stopPropagation();
-      renameConversation(record);
+      beginRenameConversation(record);
     });
 
     const deleteBtn = document.createElement('button');
@@ -273,9 +302,13 @@ async function loadConversation(id) {
   renderConversationRecords();
 }
 
-async function renameConversation(record) {
-  const nextTitle = window.prompt('重命名对话', record.title);
-  if (nextTitle === null) return;
+function beginRenameConversation(record) {
+  renamingConversationId = record.id;
+  renderConversationRecords();
+}
+
+async function commitRenameConversation(record, nextTitle) {
+  if (renamingConversationId !== record.id) return;
 
   const title = nextTitle.trim();
   if (!title) {
@@ -283,14 +316,22 @@ async function renameConversation(record) {
     return;
   }
 
+  if (title === record.title) {
+    renamingConversationId = null;
+    renderConversationRecords();
+    return;
+  }
+
   const result = await window.electronAPI.renameConversation(record.id, title);
   if (result.success) {
+    renamingConversationId = null;
     if (record.id === currentConversationId) {
       currentConversationTitle = result.conversation.title;
     }
     await loadConversationRecords();
     showStatus('已重命名对话', 'success');
   } else {
+    renamingConversationId = null;
     showStatus(result.error || '重命名失败', 'warning');
   }
 }
@@ -1100,7 +1141,6 @@ function handleStopGeneration() {
 function updateButtonStates(generating) {
   userInput.disabled = generating;
   sendBtn.disabled = generating;
-  saveBtn.disabled = generating;
   screenshotBtn.disabled = generating;
   
   if (generating) {
@@ -1150,8 +1190,6 @@ async function attachScreenshot() {
   }
   
   screenshotBtn.disabled = true;
-  saveBtn.disabled = true;
-  
   const capturingMsg = window.getFriendlyMessage('screenshotCapturing');
   showStatus(capturingMsg.text, capturingMsg.type);
   
@@ -1181,7 +1219,6 @@ async function attachScreenshot() {
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
     screenshotBtn.disabled = false;
-    saveBtn.disabled = false;
   }
 }
 
@@ -1194,8 +1231,6 @@ async function saveConversation() {
     showStatus(msg.text, msg.type);
     return;
   }
-  
-  saveBtn.disabled = true;
   
   const savingMsg = window.getFriendlyMessage('savingConversation');
   showStatus(savingMsg.text, savingMsg.type);
@@ -1214,8 +1249,6 @@ async function saveConversation() {
     console.error('保存对话失败:', error);
     const msg = window.getFriendlyMessage('saveFailed', error.message);
     showStatus(msg.text.split('\n')[0], msg.type);
-  } finally {
-    saveBtn.disabled = false;
   }
 }
 
@@ -1224,7 +1257,6 @@ sendBtn.addEventListener('click', () => sendMessage(false));
 stopBtn.addEventListener('click', handleStopGeneration);
 screenshotBtn.addEventListener('click', attachScreenshot);
 settingsBtn.addEventListener('click', () => window.electronAPI.openSettings());
-saveBtn.addEventListener('click', saveConversation);
 removeImageAttachmentBtn.addEventListener('click', clearImageAttachment);
 historyToggleBtn.addEventListener('click', () => {
   historySidebar.classList.toggle('collapsed');
@@ -1245,7 +1277,7 @@ configSelect.addEventListener('change', async () => {
 });
 
 userInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage(false);
   }
@@ -1312,7 +1344,8 @@ function applyTemplate(template) {
   
   // 替换占位符
   if (promptText.includes('{{text}}')) {
-    promptText = promptText.replace(/\{\{text\}\}/g, currentText || '');
+    const replacement = template.id === 'generate-image' ? (currentText || 'xxxxx') : (currentText || '');
+    promptText = promptText.replace(/\{\{text\}\}/g, replacement);
   } else if (currentText) {
     // 如果模板没有占位符但输入框有内容，追加到末尾
     promptText = promptText + '\n\n' + currentText;

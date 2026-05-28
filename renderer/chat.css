@@ -168,7 +168,7 @@ body {
 .history-sidebar {
   position: fixed;
   top: 76px;
-  right: 16px;
+  left: 16px;
   bottom: 16px;
   width: min(300px, calc(100vw - 32px));
   z-index: 900;
@@ -185,7 +185,7 @@ body {
 }
 
 .history-sidebar.collapsed {
-  transform: translateX(calc(100% + 24px));
+  transform: translateX(calc(-100% - 24px));
   opacity: 0;
   pointer-events: none;
 }
@@ -265,6 +265,23 @@ body {
   cursor: pointer;
   text-align: left;
   padding: 7px 6px;
+}
+
+.history-title-input {
+  width: 100%;
+  border: 1px solid var(--primary-light);
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: white;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.history-title-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
 }
 
 .history-item-title,
@@ -950,7 +967,7 @@ body {
 
   .history-sidebar {
     top: 66px;
-    right: 10px;
+    left: 10px;
     bottom: 10px;
   }
   
@@ -1028,6 +1045,12 @@ body.dark-mode .history-action-btn {
 
 body.dark-mode .history-action-btn.danger {
   color: #FF8A65;
+}
+
+body.dark-mode .history-title-input {
+  background: #252540;
+  border-color: #3D4A6A;
+  color: #E4E4E7;
 }
 
 body.dark-mode #chat-container {
