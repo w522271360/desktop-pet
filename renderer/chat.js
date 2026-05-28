@@ -5,6 +5,12 @@ const sendBtn = document.getElementById('send-btn');
 const saveBtn = document.getElementById('save-btn');
 const screenshotBtn = document.getElementById('screenshot-btn');
 const settingsBtn = document.getElementById('settings-btn');
+const historyToggleBtn = document.getElementById('history-toggle-btn');
+const historyCloseBtn = document.getElementById('history-close-btn');
+const historySidebar = document.getElementById('history-sidebar');
+const historyList = document.getElementById('history-list');
+const historyEmpty = document.getElementById('history-empty');
+const newConversationBtn = document.getElementById('new-conversation-btn');
 const statusDiv = document.getElementById('status');
 const configSelect = document.getElementById('config-select');
 const configInfo = document.getElementById('config-info');
@@ -30,6 +36,9 @@ const quickTemplates = document.getElementById('quick-templates');
 // 对话历史
 let conversationHistory = [];
 let apiMessages = [];
+let conversationRecords = [];
+let currentConversationId = null;
+let currentConversationTitle = '新对话';
 let apiConfigs = [];
 let appConfig = null;
 let pendingImageAttachment = null;
@@ -70,9 +79,8 @@ async function initializeApp() {
   // 刷新已打开聊天窗口中的配置选择器
   window.electronAPI.onApiConfigsChanged(loadConfigs);
   
-  // 添加欢迎消息
-  const welcomeMsg = window.getFriendlyMessage('welcome');
-  addMessage('assistant', welcomeMsg.text, assistantNickname);
+  startNewConversation({ silent: true });
+  await loadConversationRecords();
 
   if (!await window.electronAPI.storeGet('markdownPath')) {
     addMessage('assistant', '使用前请先在设置 -> 通用设置中选择工作目录。设置完成后即可聊天、生成图片和保存文件。', '提示');
@@ -89,6 +97,232 @@ async function initializeApp() {
   // 初始化快捷模板
   await initializeTemplates();
   
+}
+
+function deriveConversationTitle(question) {
+  const normalized = String(question || '').trim().replace(/\s+/g, ' ');
+  if (!normalized) return '新对话';
+  return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized;
+}
+
+function buildApiMessagesFromHistory(history) {
+  const messages = [];
+  history.forEach(item => {
+    if (item.question) {
+      messages.push({ role: 'user', content: item.question });
+    }
+    if (item.answer && item.answer !== '[生成图片]') {
+      messages.push({ role: 'assistant', content: item.answer });
+    }
+  });
+  return messages;
+}
+
+function getCurrentConversationPayload() {
+  return {
+    id: currentConversationId,
+    title: currentConversationTitle,
+    messages: conversationHistory,
+    apiMessages
+  };
+}
+
+async function persistCurrentConversation() {
+  if (conversationHistory.length === 0) return null;
+
+  const saved = await window.electronAPI.saveConversationRecord(getCurrentConversationPayload());
+  currentConversationId = saved.id;
+  currentConversationTitle = saved.title;
+  await loadConversationRecords();
+  return saved;
+}
+
+function renderWelcomeMessage() {
+  const welcomeMsg = window.getFriendlyMessage('welcome');
+  addMessage('assistant', welcomeMsg.text, assistantNickname);
+}
+
+function clearConversationView() {
+  conversationHistory = [];
+  apiMessages = [];
+  messagesContainer.innerHTML = '';
+  userScrolled = false;
+}
+
+function startNewConversation({ silent = false } = {}) {
+  if (isGenerating) {
+    showStatus('请先停止 AI 生成再切换对话', 'info');
+    return;
+  }
+
+  currentConversationId = null;
+  currentConversationTitle = '新对话';
+  clearConversationView();
+  renderWelcomeMessage();
+  renderConversationRecords();
+  userInput.focus();
+  if (!silent) {
+    showStatus('已开始新对话', 'success');
+  }
+}
+
+async function loadConversationRecords() {
+  conversationRecords = await window.electronAPI.getConversations();
+  renderConversationRecords();
+}
+
+function formatConversationTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+}
+
+function renderConversationRecords() {
+  if (!historyList || !historyEmpty) return;
+
+  historyList.innerHTML = '';
+  historyEmpty.classList.toggle('hidden', conversationRecords.length > 0);
+
+  conversationRecords.forEach(record => {
+    const item = document.createElement('div');
+    item.className = `history-item${record.id === currentConversationId ? ' active' : ''}`;
+    item.dataset.id = record.id;
+
+    const main = document.createElement('button');
+    main.type = 'button';
+    main.className = 'history-item-main';
+    main.title = record.title;
+    main.addEventListener('click', () => loadConversation(record.id));
+
+    const title = document.createElement('span');
+    title.className = 'history-item-title';
+    title.textContent = record.title;
+
+    const meta = document.createElement('span');
+    meta.className = 'history-item-meta';
+    meta.textContent = formatConversationTime(record.updatedAt);
+
+    main.appendChild(title);
+    main.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'history-item-actions';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'history-action-btn';
+    renameBtn.textContent = '✎';
+    renameBtn.title = '重命名';
+    renameBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      renameConversation(record);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'history-action-btn danger';
+    deleteBtn.textContent = '×';
+    deleteBtn.title = '删除';
+    deleteBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      deleteConversation(record);
+    });
+
+    actions.appendChild(renameBtn);
+    actions.appendChild(deleteBtn);
+    item.appendChild(main);
+    item.appendChild(actions);
+    historyList.appendChild(item);
+  });
+}
+
+async function loadConversation(id) {
+  if (isGenerating) {
+    showStatus('请先停止 AI 生成再切换对话', 'info');
+    return;
+  }
+
+  const record = await window.electronAPI.getConversation(id);
+  if (!record) {
+    showStatus('未找到这条对话记录', 'warning');
+    await loadConversationRecords();
+    return;
+  }
+
+  currentConversationId = record.id;
+  currentConversationTitle = record.title;
+  conversationHistory = Array.isArray(record.messages) ? record.messages : [];
+  apiMessages = Array.isArray(record.apiMessages) && record.apiMessages.length > 0
+    ? record.apiMessages
+    : buildApiMessagesFromHistory(conversationHistory);
+
+  messagesContainer.innerHTML = '';
+  renderWelcomeMessage();
+  conversationHistory.forEach((item, index) => {
+    addMessage('user', item.question, null, null, index);
+    addMessage('assistant', item.answer, item.model || null);
+  });
+  forceScrollToBottom();
+  renderConversationRecords();
+}
+
+async function renameConversation(record) {
+  const nextTitle = window.prompt('重命名对话', record.title);
+  if (nextTitle === null) return;
+
+  const title = nextTitle.trim();
+  if (!title) {
+    showStatus('标题不能为空', 'info');
+    return;
+  }
+
+  const result = await window.electronAPI.renameConversation(record.id, title);
+  if (result.success) {
+    if (record.id === currentConversationId) {
+      currentConversationTitle = result.conversation.title;
+    }
+    await loadConversationRecords();
+    showStatus('已重命名对话', 'success');
+  } else {
+    showStatus(result.error || '重命名失败', 'warning');
+  }
+}
+
+async function deleteConversation(record) {
+  if (isGenerating) {
+    showStatus('请先停止 AI 生成再删除对话', 'info');
+    return;
+  }
+
+  const confirmed = window.confirm(`删除「${record.title}」？此操作不可恢复。`);
+  if (!confirmed) return;
+
+  const result = await window.electronAPI.deleteConversationRecord(record.id);
+  if (!result.success) {
+    showStatus('删除失败，可能已不存在', 'warning');
+    await loadConversationRecords();
+    return;
+  }
+
+  await loadConversationRecords();
+  if (record.id === currentConversationId) {
+    const nextRecord = conversationRecords[0];
+    if (nextRecord) {
+      await loadConversation(nextRecord.id);
+    } else {
+      startNewConversation({ silent: true });
+    }
+  } else {
+    renderConversationRecords();
+  }
+  showStatus('已删除对话', 'success');
 }
 
 async function loadPersonalizationSettings() {
@@ -671,6 +905,10 @@ async function sendMessage(isRegenerate = false) {
         model: model,
         toolCalls: response.toolCalls
       });
+      if (!currentConversationId && conversationHistory.length === 1) {
+        currentConversationTitle = deriveConversationTitle(question);
+      }
+      await persistCurrentConversation();
     } else {
       const friendlyError = window.formatApiError(response.error || '未知错误');
       const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
@@ -710,7 +948,8 @@ async function sendImageMessage(question) {
   stopGeneration = false;
   updateButtonStates(true);
 
-  addMessage('user', question, null, attachment);
+  const userMsgIndex = conversationHistory.length;
+  addMessage('user', question, null, attachment, userMsgIndex);
   clearImageAttachment();
   userInput.value = '';
   userInput.style.height = 'auto';
@@ -736,6 +975,10 @@ async function sendImageMessage(question) {
         answer: imageEditRequested ? '[生成图片]' : result.content,
         model: result.model
       });
+      if (!currentConversationId && conversationHistory.length === 1) {
+        currentConversationTitle = deriveConversationTitle(question);
+      }
+      await persistCurrentConversation();
       showStatus(imageEditRequested ? '图片已生成' : '图片分析完成', 'success');
     } else {
       const friendlyError = window.formatApiError(result.error || '未知错误');
@@ -770,7 +1013,8 @@ async function sendGeneratedImage(prompt) {
   await window.electronAPI.setActiveConfig(selectedId);
   isGenerating = true;
   updateButtonStates(true);
-  addMessage('user', prompt);
+  const userMsgIndex = conversationHistory.length;
+  addMessage('user', prompt, null, null, userMsgIndex);
   userInput.value = '';
   userInput.style.height = 'auto';
   showLoading();
@@ -786,6 +1030,10 @@ async function sendGeneratedImage(prompt) {
         answer: '[生成图片]',
         model: result.model
       });
+      if (!currentConversationId && conversationHistory.length === 1) {
+        currentConversationTitle = deriveConversationTitle(prompt);
+      }
+      await persistCurrentConversation();
       showStatus('图片已生成', 'success');
     } else {
       const friendlyError = window.formatApiError(result.error || '未知错误');
@@ -978,6 +1226,13 @@ screenshotBtn.addEventListener('click', attachScreenshot);
 settingsBtn.addEventListener('click', () => window.electronAPI.openSettings());
 saveBtn.addEventListener('click', saveConversation);
 removeImageAttachmentBtn.addEventListener('click', clearImageAttachment);
+historyToggleBtn.addEventListener('click', () => {
+  historySidebar.classList.toggle('collapsed');
+});
+historyCloseBtn.addEventListener('click', () => {
+  historySidebar.classList.add('collapsed');
+});
+newConversationBtn.addEventListener('click', () => startNewConversation());
 
 configSelect.addEventListener('change', async () => {
   await updateConfigInfo();

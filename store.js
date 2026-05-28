@@ -1,5 +1,6 @@
 // 使用 electron-store 管理配置 - 支持多卡片配置
 const Store = require('electron-store');
+const { createConversationHistoryStore } = require('./conversation-history');
 
 // 简单的UUID生成函数
 function generateId() {
@@ -131,6 +132,28 @@ store.getQuickAccessTemplates = function() {
 // 设置快捷访问模板列表
 store.setQuickAccessTemplates = function(templateIds) {
   this.set('quickAccessTemplates', templateIds);
+};
+
+const conversationHistory = createConversationHistoryStore(store);
+
+store.getConversations = function() {
+  return conversationHistory.getAll();
+};
+
+store.getConversation = function(id) {
+  return conversationHistory.get(id);
+};
+
+store.saveConversationRecord = function(conversation) {
+  return conversationHistory.upsert(conversation);
+};
+
+store.renameConversation = function(id, title) {
+  return conversationHistory.rename(id, title);
+};
+
+store.deleteConversationRecord = function(id) {
+  return conversationHistory.delete(id);
 };
 
 module.exports = store;

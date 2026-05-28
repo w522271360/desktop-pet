@@ -73,6 +73,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveConversation: async (conversation) => {
     return await ipcRenderer.invoke('save-conversation', { conversation });
   },
+
+  getConversations: async () => {
+    return await ipcRenderer.invoke('get-conversations');
+  },
+
+  getConversation: async (id) => {
+    return await ipcRenderer.invoke('get-conversation', { id });
+  },
+
+  saveConversationRecord: async (conversation) => {
+    return await ipcRenderer.invoke('save-conversation-record', { conversation });
+  },
+
+  renameConversation: async (id, title) => {
+    return await ipcRenderer.invoke('rename-conversation', { id, title });
+  },
+
+  deleteConversationRecord: async (id) => {
+    return await ipcRenderer.invoke('delete-conversation-record', { id });
+  },
   
   // 屏幕截图分析
   captureScreen: async () => {

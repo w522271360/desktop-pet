@@ -21,6 +21,10 @@ test('packages main-process helpers required at app startup', () => {
     'generated-image-export.js must be included in packaged desktop builds'
   );
   assert.ok(
+    packageJson.build.files.includes('conversation-history.js'),
+    'conversation-history.js must be included in packaged desktop builds'
+  );
+  assert.ok(
     packageJson.build.files.includes('conversation-save-path.js'),
     'conversation-save-path.js must be included in packaged desktop builds'
   );

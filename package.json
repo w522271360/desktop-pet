@@ -46,6 +46,7 @@
       "vision-capabilities.js",
       "openai-compatible.js",
       "generated-image-export.js",
+      "conversation-history.js",
       "conversation-save-path.js",
       "work-directory.js",
       "image-generation-config.js",

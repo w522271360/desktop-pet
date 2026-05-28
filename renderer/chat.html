@@ -19,9 +19,21 @@
         </div>
       </div>
       <div class="toolbar-right">
+        <button id="history-toggle-btn" class="toolbar-icon-btn" title="对话记录">☰</button>
         <button id="settings-btn" class="toolbar-icon-btn" title="设置">⚙️</button>
       </div>
     </div>
+
+    <!-- 对话记录侧栏，默认收起 -->
+    <aside id="history-sidebar" class="history-sidebar collapsed" aria-label="对话记录">
+      <div class="history-header">
+        <h2>对话记录</h2>
+        <button id="history-close-btn" class="history-icon-btn" title="收起">›</button>
+      </div>
+      <button id="new-conversation-btn" class="new-conversation-btn" type="button">新对话</button>
+      <div id="history-list" class="history-list"></div>
+      <div id="history-empty" class="history-empty">暂无历史对话</div>
+    </aside>
 
     <!-- 对话历史区域 -->
     <div id="chat-container">

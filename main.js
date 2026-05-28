@@ -659,6 +659,27 @@ ipcMain.handle('save-conversation', async (event, { conversation }) => {
   return await saveConversationAsMarkdown(conversation);
 });
 
+ipcMain.handle('get-conversations', () => {
+  return store.getConversations();
+});
+
+ipcMain.handle('get-conversation', (event, { id }) => {
+  return store.getConversation(id);
+});
+
+ipcMain.handle('save-conversation-record', (event, { conversation }) => {
+  return store.saveConversationRecord(conversation);
+});
+
+ipcMain.handle('rename-conversation', (event, { id, title }) => {
+  const conversation = store.renameConversation(id, title);
+  return conversation ? { success: true, conversation } : { success: false, error: '未找到对话' };
+});
+
+ipcMain.handle('delete-conversation-record', (event, { id }) => {
+  return { success: store.deleteConversationRecord(id) };
+});
+
 ipcMain.handle('capture-screen', async () => {
   const directoryError = ensureWorkDirectoryConfigured();
   if (directoryError) return directoryError;
