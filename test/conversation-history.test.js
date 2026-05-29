@@ -50,3 +50,25 @@ test('creates, renames, sorts, and deletes conversation records', () => {
   assert.deepEqual(manager.getAll().map(item => item.id), [first.id]);
   assert.equal(manager.delete('missing'), false);
 });
+
+test('can store conversation records outside the config store', () => {
+  let records = [];
+  const manager = createConversationHistoryStore({
+    getConversationRecords: () => records,
+    setConversationRecords: (nextRecords) => {
+      records = nextRecords;
+    }
+  });
+
+  const saved = manager.upsert({
+    title: '固定文件历史',
+    updatedAt: '2026-05-28T08:00:00.000Z',
+    messages: [{ question: '历史记录放哪里？', answer: '固定文件夹。' }]
+  });
+
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, saved.id);
+  assert.equal(manager.get(saved.id).title, '固定文件历史');
+  assert.equal(manager.delete(saved.id), true);
+  assert.deepEqual(records, []);
+});

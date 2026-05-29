@@ -8,8 +8,15 @@ const apiService = require('./api-service');
 const { notifyApiConfigsChanged } = require('./config-change-notifier');
 const { getImageExtension } = require('./generated-image-export');
 const { resolveConversationSavePath } = require('./conversation-save-path');
-const { hasConfiguredWorkDirectory, workDirectoryRequiredError } = require('./work-directory');
 const { createReminderManager } = require('./reminder-manager');
+const { getPortableRelaunchOptions } = require('./portable-restart');
+
+const APP_NAME = '桌面小助手';
+
+app.setName(APP_NAME);
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.king.desktop-helper');
+}
 
 // 启用 Web Speech API 所需的实验性功能
 app.commandLine.appendSwitch('enable-speech-dispatcher');
@@ -25,17 +32,11 @@ let reminderCheckTimer = null;
 let activeReminderId = null;
 const reminderManager = createReminderManager(store);
 
-function ensureWorkDirectoryConfigured() {
-  if (hasConfiguredWorkDirectory(store.get('markdownPath', ''))) {
-    return null;
-  }
-
-  return { success: false, error: workDirectoryRequiredError() };
-}
-
 // 获取应用图标路径（支持多种格式回退）
 function getAppIcon() {
-  const iconFormats = ['icon.png', 'icon.ico', 'icon.svg'];
+  const iconFormats = process.platform === 'win32'
+      ? ['icon.ico', 'icon.png', 'icon.svg']
+      : ['icon.png', 'icon.ico', 'icon.svg'];
   for (const format of iconFormats) {
     const iconPath = path.join(__dirname, 'assets', format);
     if (fs.existsSync(iconPath)) {
@@ -85,6 +86,7 @@ function serializeReminder(reminder) {
     title: reminder.title,
     note: reminder.note || '',
     scheduledAt: reminder.scheduledAt,
+    recurrence: reminder.recurrence || { frequency: 'none' },
     enabled: reminder.enabled !== false,
     status: reminder.status || 'scheduled',
     acknowledgedAt: reminder.acknowledgedAt || null,
@@ -180,7 +182,7 @@ function createPetWindow() {
     console.log('[pet] window-bounds', petWindow.getBounds());
   }
 
-  petWindow.loadFile('renderer/pet.html');
+  petWindow.loadFile(path.join(__dirname, 'renderer', 'pet.html'));
   
   if (process.argv.includes('--dev')) {
     petWindow.webContents.openDevTools({ mode: 'detach' });
@@ -222,7 +224,8 @@ function createChatWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: false,
     resizable: true,
-    title: '桌面小助手',
+    skipTaskbar: true,
+    title: APP_NAME,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -238,7 +241,7 @@ function createChatWindow() {
   chatWindow = new BrowserWindow(options);
   chatWindowReady = false;
 
-  chatWindow.loadFile('renderer/chat.html');
+  chatWindow.loadFile(path.join(__dirname, 'renderer', 'chat.html'));
 
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
@@ -285,7 +288,8 @@ function createSettingsWindow() {
     autoHideMenuBar: true,
     alwaysOnTop: false,
     resizable: true,
-    title: '桌面小助手 - 设置',
+    skipTaskbar: true,
+    title: `${APP_NAME} - 设置`,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -299,7 +303,7 @@ function createSettingsWindow() {
   
   settingsWindow = new BrowserWindow(options);
 
-  settingsWindow.loadFile('renderer/settings.html');
+  settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
 
   settingsWindow.on('closed', () => {
     settingsWindow = null;
@@ -310,8 +314,7 @@ function createSettingsWindow() {
 async function saveConversationAsMarkdown(conversation) {
   try {
     const savePath = resolveConversationSavePath(
-      store.get('markdownPath', ''),
-      app.getPath('documents')
+      store.dataDirectory
     );
     if (!fs.existsSync(savePath)) {
       fs.mkdirSync(savePath, { recursive: true });
@@ -500,7 +503,7 @@ async function selectScreenshotRegion() {
         resolve({ canceled: true });
       });
 
-      screenshotSelectorWindow.loadFile('renderer/screenshot-selector.html');
+      screenshotSelectorWindow.loadFile(path.join(__dirname, 'renderer', 'screenshot-selector.html'));
       screenshotSelectorWindow.webContents.once('did-finish-load', () => {
         screenshotSelectorWindow.webContents.send('screenshot-selection-data', {
           image: captured.data,
@@ -596,7 +599,7 @@ ipcMain.on('quit-app', () => {
 });
 
 ipcMain.on('restart-app', () => {
-  app.relaunch();
+  app.relaunch(getPortableRelaunchOptions() || undefined);
   app.exit(0);
 });
 
@@ -650,8 +653,6 @@ ipcMain.handle('acknowledge-reminder', (event, { id }) => {
 });
 
 ipcMain.handle('send-message', async (event, { messages }) => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await apiService.sendMessage(messages);
 });
 
@@ -681,32 +682,22 @@ ipcMain.handle('delete-conversation-record', (event, { id }) => {
 });
 
 ipcMain.handle('capture-screen', async () => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await captureScreen();
 });
 
 ipcMain.handle('select-screenshot-region', async () => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await selectScreenshotRegion();
 });
 
 ipcMain.handle('analyze-screenshot', async (event, { base64Image }) => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await apiService.analyzeScreenshot(base64Image);
 });
 
 ipcMain.handle('analyze-image', async (event, { base64Image, prompt, mimeType }) => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await apiService.analyzeImage(base64Image, prompt, mimeType);
 });
 
 ipcMain.handle('generate-image', async (event, { prompt, base64Image, mimeType }) => {
-  const directoryError = ensureWorkDirectoryConfigured();
-  if (directoryError) return directoryError;
   return await apiService.generateImage(prompt, base64Image, mimeType);
 });
 
@@ -865,21 +856,6 @@ ipcMain.on('update-chat-font-size', (event, fontSize) => {
   }
 });
 
-// ========== 文件/目录选择 IPC 处理 ==========
-
-// 选择目录
-ipcMain.handle('select-directory', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openDirectory'],
-    title: '选择工作目录'
-  });
-  
-  if (!result.canceled && result.filePaths.length > 0) {
-    return { success: true, path: result.filePaths[0] };
-  }
-  return { success: false };
-});
-
 // ========== 提示词模板相关 IPC 处理 ==========
 
 // 获取预设模板配置
@@ -1016,7 +992,7 @@ function createCustomMenu() {
           }
         },
         { type: 'separator' },
-        { label: '关于 桌面小助手', click: () => showAboutDialog() }
+        { label: `关于 ${APP_NAME}`, click: () => showAboutDialog() }
       ]
     }
   ];
@@ -1030,9 +1006,9 @@ function showAboutDialog() {
   const { dialog } = require('electron');
   dialog.showMessageBox({
     type: 'info',
-    title: '关于 桌面小助手',
-    message: '桌面小助手',
-    detail: `版本: 2.2.0\n作者: king.wang\n\n多模态桌面小助手。`,
+    title: `关于 ${APP_NAME}`,
+    message: APP_NAME,
+    detail: `版本: 2.2.0\n作者: king.wang\n\n多模态${APP_NAME}。`,
     buttons: ['确定']
   });
 }
@@ -1041,6 +1017,18 @@ function showAboutDialog() {
 app.whenReady().then(async () => {
   // Windows 版本不显示原生菜单栏，避免顶部出现“文件/编辑/视图”等系统菜单。
   Menu.setApplicationMenu(null);
+
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.hide();
+    const dockIcon = path.join(__dirname, 'assets', 'icon.png');
+    if (fs.existsSync(dockIcon)) {
+      try {
+        app.dock.setIcon(dockIcon);
+      } catch (error) {
+        console.warn('Failed to set dock icon:', error.message);
+      }
+    }
+  }
   
   createPetWindow();
 

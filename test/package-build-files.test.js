@@ -28,10 +28,10 @@ test('packages main-process helpers required at app startup', () => {
     packageJson.build.files.includes('conversation-save-path.js'),
     'conversation-save-path.js must be included in packaged desktop builds'
   );
-  assert.ok(packageJson.build.files.includes('work-directory.js'));
   assert.ok(packageJson.build.files.includes('image-generation-config.js'));
   assert.ok(packageJson.build.files.includes('image-generation-log.js'));
   assert.ok(packageJson.build.files.includes('reminder-manager.js'));
+  assert.ok(packageJson.build.files.includes('portable-restart.js'));
   assert.ok(
     packageJson.build.files.includes('config/prompt-templates.json'),
     'prompt templates must be included in packaged desktop builds'
@@ -48,4 +48,16 @@ test('packages main-process helpers required at app startup', () => {
     packageJson.build.files.includes('renderer/**/*'),
     'screenshot selector and renderer assets must be included in packaged desktop builds'
   );
+  assert.ok(
+    packageJson.build.files.includes('assets/icon.ico'),
+    'Windows app icon must be included in packaged desktop builds'
+  );
+  assert.ok(
+    packageJson.build.files.includes('assets/icon.icns'),
+    'macOS app icon must be included in packaged desktop builds'
+  );
+  assert.equal(packageJson.build.win.icon, 'assets/icon.ico');
+  assert.equal(packageJson.build.mac.icon, 'assets/icon.icns');
+  assert.equal(packageJson.build.productName, '桌面小助手');
+  assert.equal(packageJson.productName, '桌面小助手');
 });

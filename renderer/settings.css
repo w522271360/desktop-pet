@@ -325,6 +325,11 @@ body {
   color: #999;
 }
 
+.card-badge.repeat {
+  background: rgba(64, 169, 255, 0.14);
+  color: #1677b8;
+}
+
 .card-actions {
   display: flex;
   gap: 6px;
@@ -871,6 +876,16 @@ input:checked + .slider:before {
   margin-bottom: 20px;
 }
 
+.form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.form-row.hidden {
+  display: none;
+}
+
 .form-group label {
   display: block;
   font-size: 14px;
@@ -880,7 +895,8 @@ input:checked + .slider:before {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 12px 14px;
   border: 2px solid var(--primary-light);
@@ -890,10 +906,35 @@ input:checked + .slider:before {
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+}
+
+.form-group textarea {
+  min-height: 92px;
+  line-height: 1.6;
+  resize: vertical;
+  background: linear-gradient(180deg, rgba(255, 248, 238, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  color: #3f352b;
+}
+
+.form-group textarea::placeholder {
+  color: #b49a7a;
+}
+
+#reminder-note-input {
+  border-color: rgba(255, 183, 77, 0.56);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+#reminder-note-input:focus {
+  border-color: var(--primary);
+  background: #fffdf9;
+  box-shadow: 0 0 0 4px rgba(255, 152, 0, 0.12), 0 10px 24px rgba(255, 152, 0, 0.08);
 }
 
 .password-input {
@@ -934,45 +975,6 @@ input:checked + .slider:before {
 .checkbox-label input[type="checkbox"] {
   width: auto;
   cursor: pointer;
-}
-
-/* 自定义模型输入 */
-.custom-model-group {
-  margin-top: 8px;
-}
-
-.custom-model-group.hidden {
-  display: none;
-}
-
-.custom-model-group input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  background: #f8f9fa;
-  color: #333;
-  font-size: 14px;
-}
-
-.custom-model-group input:focus {
-  border-color: #4A90D9;
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
-}
-
-.custom-model-group input::placeholder {
-  color: #9ca3af;
-}
-
-.custom-model-group .form-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.custom-model-group .form-hint strong {
-  color: #4A90D9;
 }
 
 .model-info {
@@ -1510,29 +1512,26 @@ body.dark-mode .form-group textarea:focus {
   box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.15);
 }
 
+body.dark-mode #reminder-note-input {
+  background: linear-gradient(180deg, #272743 0%, #22223a 100%);
+  border-color: #3a4568;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body.dark-mode #reminder-note-input::placeholder {
+  color: #85859a;
+}
+
+body.dark-mode #reminder-note-input:focus {
+  border-color: var(--primary-mid);
+  background: #292944;
+  box-shadow: 0 0 0 4px rgba(255, 183, 77, 0.14), 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
 body.dark-mode .model-info {
   background: #252540;
   border-left-color: var(--primary);
   color: #A0A0B0;
-}
-
-/* 暗色模式 - 自定义模型输入 */
-body.dark-mode .custom-model-group input {
-  border-color: #3a3f4b;
-  background: #1a1d24;
-  color: #e0e0e0;
-}
-
-body.dark-mode .custom-model-group input:focus {
-  border-color: #4A90D9;
-}
-
-body.dark-mode .custom-model-group input::placeholder {
-  color: #6b7280;
-}
-
-body.dark-mode .custom-model-group .form-hint {
-  color: #9ca3af;
 }
 
 body.dark-mode .modal-footer {

@@ -11,6 +11,82 @@ function isValidDate(value) {
   return !Number.isNaN(date.getTime());
 }
 
+const REPEAT_FREQUENCIES = new Set(['none', 'daily', 'weekly', 'monthly', 'interval']);
+const INTERVAL_UNITS = new Set(['minutes', 'hours', 'days']);
+
+function normalizeRecurrence(input = {}, existing = {}) {
+  const source = input.recurrence || input.repeat || existing.recurrence || {};
+  const frequency = REPEAT_FREQUENCIES.has(source.frequency) ? source.frequency : 'none';
+
+  if (frequency !== 'interval') {
+    return { frequency };
+  }
+
+  const intervalValue = Math.max(1, Math.floor(Number(source.intervalValue || 1)));
+  const intervalUnit = INTERVAL_UNITS.has(source.intervalUnit) ? source.intervalUnit : 'days';
+  return {
+    frequency,
+    intervalValue,
+    intervalUnit
+  };
+}
+
+function hasRecurrence(reminder) {
+  return reminder?.recurrence?.frequency && reminder.recurrence.frequency !== 'none';
+}
+
+function addRecurrenceStep(date, recurrence) {
+  const next = new Date(date);
+
+  if (recurrence.frequency === 'daily') {
+    next.setDate(next.getDate() + 1);
+  } else if (recurrence.frequency === 'weekly') {
+    next.setDate(next.getDate() + 7);
+  } else if (recurrence.frequency === 'monthly') {
+    const originalDate = next.getDate();
+    next.setMonth(next.getMonth() + 1);
+    if (next.getDate() !== originalDate) {
+      next.setDate(0);
+    }
+  } else if (recurrence.frequency === 'interval') {
+    const value = recurrence.intervalValue || 1;
+    if (recurrence.intervalUnit === 'minutes') {
+      next.setMinutes(next.getMinutes() + value);
+    } else if (recurrence.intervalUnit === 'hours') {
+      next.setHours(next.getHours() + value);
+    } else {
+      next.setDate(next.getDate() + value);
+    }
+  }
+
+  return next;
+}
+
+function getNextScheduledAt(scheduledAt, recurrence, referenceDate = new Date()) {
+  if (!recurrence || recurrence.frequency === 'none') return null;
+
+  const referenceTime = referenceDate.getTime();
+  let next = new Date(scheduledAt);
+  if (Number.isNaN(next.getTime())) return null;
+
+  if (recurrence.frequency === 'interval') {
+    const intervalDurations = {
+      minutes: 60 * 1000,
+      hours: 60 * 60 * 1000,
+      days: 24 * 60 * 60 * 1000
+    };
+    const duration = (recurrence.intervalValue || 1) * (intervalDurations[recurrence.intervalUnit] || intervalDurations.days);
+    const missedCount = Math.max(0, Math.floor((referenceTime - next.getTime()) / duration) + 1);
+    return new Date(next.getTime() + missedCount * duration).toISOString();
+  }
+
+  for (let i = 0; i < 1000 && next.getTime() <= referenceTime; i += 1) {
+    next = addRecurrenceStep(next, recurrence);
+  }
+
+  return next.getTime() > referenceTime ? next.toISOString() : null;
+}
+
 function normalizeReminder(input, existing = {}, options = {}) {
   const title = String(input.title || '').trim();
   if (!title) {
@@ -23,11 +99,13 @@ function normalizeReminder(input, existing = {}, options = {}) {
 
   const timestamp = options.now ? options.now().toISOString() : nowIso();
   const status = input.status || existing.status || 'scheduled';
+  const recurrence = normalizeRecurrence(input, existing);
   return {
     id: existing.id || input.id || (options.generateId || generateId)(),
     title,
     note: String(input.note || '').trim(),
     scheduledAt: new Date(input.scheduledAt).toISOString(),
+    recurrence,
     enabled: input.enabled !== false,
     status,
     acknowledgedAt: status === 'acknowledged' ? (existing.acknowledgedAt || input.acknowledgedAt || null) : null,
@@ -78,6 +156,19 @@ function createReminderManager(store, options = {}) {
     if (index < 0) return null;
 
     const timestamp = options.now ? options.now().toISOString() : nowIso();
+    if (hasRecurrence(reminders[index])) {
+      const nextScheduledAt = getNextScheduledAt(reminders[index].scheduledAt, reminders[index].recurrence, new Date(timestamp));
+      reminders[index] = {
+        ...reminders[index],
+        scheduledAt: nextScheduledAt || reminders[index].scheduledAt,
+        status: 'scheduled',
+        acknowledgedAt: timestamp,
+        updatedAt: timestamp
+      };
+      setReminders(reminders);
+      return reminders[index];
+    }
+
     reminders[index] = {
       ...reminders[index],
       status: 'acknowledged',
@@ -124,5 +215,7 @@ function createReminderManager(store, options = {}) {
 
 module.exports = {
   createReminderManager,
-  normalizeReminder
+  getNextScheduledAt,
+  normalizeReminder,
+  normalizeRecurrence
 };

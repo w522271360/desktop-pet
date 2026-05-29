@@ -4,6 +4,7 @@ const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const screenshotBtn = document.getElementById('screenshot-btn');
 const settingsBtn = document.getElementById('settings-btn');
+const quickNewConversationBtn = document.getElementById('quick-new-conversation-btn');
 const historyToggleBtn = document.getElementById('history-toggle-btn');
 const historyCloseBtn = document.getElementById('history-close-btn');
 const historySidebar = document.getElementById('history-sidebar');
@@ -48,6 +49,9 @@ let userDisplayName = '';
 // 生成控制
 let isGenerating = false;
 let stopGeneration = false;
+let activeGenerationId = 0;
+let activeGenerationRollback = null;
+const stoppedGenerationIds = new Set();
 let editingMessageIndex = -1; // 正在编辑的消息索引
 
 // 模板数据
@@ -82,11 +86,6 @@ async function initializeApp() {
   startNewConversation({ silent: true });
   await loadConversationRecords();
 
-  if (!await window.electronAPI.storeGet('markdownPath')) {
-    addMessage('assistant', '使用前请先在设置 -> 通用设置中选择工作目录。设置完成后即可聊天、生成图片和保存文件。', '提示');
-    window.electronAPI.openSettings();
-  }
-  
   // 监听滚动事件
   messagesContainer.addEventListener('scroll', handleScroll);
   messagesContainer.addEventListener('wheel', handleWheel);
@@ -184,13 +183,70 @@ function formatConversationTime(value) {
   return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
+function getConversationDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getConversationDayKey(value) {
+  const date = getConversationDate(value);
+  if (!date) return 'unknown';
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatConversationDayLabel(dayKey) {
+  if (dayKey === 'unknown') return '未记录日期';
+
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return '未记录日期';
+
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return '今天';
+  if (date.toDateString() === yesterday.toDateString()) return '昨天';
+
+  const sameYear = date.getFullYear() === today.getFullYear();
+  return date.toLocaleDateString('zh-CN', sameYear
+    ? { month: 'long', day: 'numeric', weekday: 'short' }
+    : { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+}
+
+function groupConversationRecords(records) {
+  return records.reduce((groups, record) => {
+    const dayKey = getConversationDayKey(record.updatedAt || record.createdAt);
+    let group = groups.find(item => item.dayKey === dayKey);
+    if (!group) {
+      group = { dayKey, records: [] };
+      groups.push(group);
+    }
+    group.records.push(record);
+    return groups;
+  }, []);
+}
+
 function renderConversationRecords() {
   if (!historyList || !historyEmpty) return;
 
   historyList.innerHTML = '';
   historyEmpty.classList.toggle('hidden', conversationRecords.length > 0);
 
-  conversationRecords.forEach(record => {
+  groupConversationRecords(conversationRecords).forEach(group => {
+    const groupElement = document.createElement('section');
+    groupElement.className = 'history-day-group';
+
+    const heading = document.createElement('h3');
+    heading.className = 'history-day-heading';
+    heading.textContent = formatConversationDayLabel(group.dayKey);
+    groupElement.appendChild(heading);
+
+    group.records.forEach(record => {
     const item = document.createElement('div');
     item.className = `history-item${record.id === currentConversationId ? ' active' : ''}`;
     item.dataset.id = record.id;
@@ -268,7 +324,10 @@ function renderConversationRecords() {
     actions.appendChild(deleteBtn);
     item.appendChild(main);
     item.appendChild(actions);
-    historyList.appendChild(item);
+      groupElement.appendChild(item);
+    });
+
+    historyList.appendChild(groupElement);
   });
 }
 
@@ -341,9 +400,6 @@ async function deleteConversation(record) {
     showStatus('请先停止 AI 生成再删除对话', 'info');
     return;
   }
-
-  const confirmed = window.confirm(`删除「${record.title}」？此操作不可恢复。`);
-  if (!confirmed) return;
 
   const result = await window.electronAPI.deleteConversationRecord(record.id);
   if (!result.success) {
@@ -604,14 +660,8 @@ async function loadConfigs() {
 function checkCurrentVisionSupport() {
   const selectedId = configSelect.value;
   const config = apiConfigs.find(c => c.id === selectedId);
-  
-  if (!config || !appConfig) return false;
-  if (config.provider === 'custom') return true;
-  
-  const template = appConfig.providerTemplates[config.provider];
-  const model = template?.models.find(m => m.id === config.selectedModel);
-  
-  return model?.supportsVision === true;
+
+  return Boolean(config && appConfig);
 }
 
 // 更新截图按钮状态
@@ -627,6 +677,34 @@ function updateScreenshotButton(supportsVision) {
   }
 }
 
+function formatModelLabel(model, fallback = '') {
+  const label = String(model || fallback || '').trim();
+  if (!label) return '';
+
+  const parenthesizedId = label.match(/\(([^()]+)\)\s*$/);
+  if (parenthesizedId) {
+    return parenthesizedId[1].trim();
+  }
+
+  return label;
+}
+
+function appendAssistantLabel(parent, model = null) {
+  const label = document.createElement('div');
+  label.className = 'message-label';
+  label.append(document.createTextNode(assistantNickname || '小秘书'));
+
+  const modelLabel = formatModelLabel(model);
+  if (modelLabel) {
+    const badge = document.createElement('span');
+    badge.className = 'model-badge';
+    badge.textContent = modelLabel;
+    label.append(document.createTextNode(' '), badge);
+  }
+
+  parent.appendChild(label);
+}
+
 // 更新配置信息显示
 async function updateConfigInfo() {
   const selectedId = configSelect.value;
@@ -639,16 +717,10 @@ async function updateConfigInfo() {
     return;
   }
   
-  const template = appConfig.providerTemplates[config.provider];
-  const model = template?.models.find(m => m.id === config.selectedModel);
-  
-  let infoText = `${template?.icon || ''} ${model?.name || config.selectedModel}`;
+  const modelLabel = formatModelLabel(config.selectedModel);
   const supportsVision = checkCurrentVisionSupport();
-  if (supportsVision) {
-    infoText += ' 👁️';
-  }
   
-  configInfo.textContent = infoText;
+  configInfo.textContent = modelLabel;
   configInfo.className = config.apiKey ? 'config-badge success' : 'config-badge';
   
   updateScreenshotButton(supportsVision);
@@ -759,15 +831,17 @@ function addMessage(role, content, model = null, screenshot = null, messageIndex
       openEditModal(content, actualIndex);
     });
   } else {
-    const label = document.createElement('div');
-    label.className = 'message-label';
-    label.innerHTML = `${assistantNickname || '小秘书'}${model ? ` <span class="model-badge">${model}</span>` : ''}`;
-    messageDiv.appendChild(label);
+    appendAssistantLabel(messageDiv, model);
   }
   
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
-  contentDiv.textContent = content;
+  if (role === 'user') {
+    contentDiv.textContent = content;
+  } else {
+    contentDiv.classList.add('markdown-content');
+    window.ChatMarkdown.renderMarkdownInto(contentDiv, content);
+  }
   
   messageDiv.appendChild(contentDiv);
   
@@ -785,18 +859,19 @@ function addMessage(role, content, model = null, screenshot = null, messageIndex
 }
 
 // 流式添加消息（支持停止）
-async function addMessageStreaming(role, content, model = null, screenshot = null) {
+async function addMessageStreaming(role, content, model = null, screenshot = null, shouldStop = () => stopGeneration) {
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${role}`;
   
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content streaming';
+  const shouldRenderMarkdown = role !== 'user';
+  if (shouldRenderMarkdown) {
+    contentDiv.classList.add('markdown-content');
+  }
   
   if (role !== 'user') {
-    const label = document.createElement('div');
-    label.className = 'message-label';
-    label.innerHTML = `${assistantNickname || '小秘书'}${model ? ` <span class="model-badge">${model}</span>` : ''}`;
-    messageDiv.appendChild(label);
+    appendAssistantLabel(messageDiv, model);
   }
   messageDiv.appendChild(contentDiv);
   
@@ -815,7 +890,7 @@ async function addMessageStreaming(role, content, model = null, screenshot = nul
   const delay = 12;
   
   for (const char of chars) {
-    if (stopGeneration) {
+    if (shouldStop()) {
       currentText += '...(已停止)';
       contentDiv.textContent = currentText;
       break;
@@ -829,8 +904,35 @@ async function addMessageStreaming(role, content, model = null, screenshot = nul
   }
   
   contentDiv.classList.remove('streaming');
+  if (shouldRenderMarkdown) {
+    window.ChatMarkdown.renderMarkdownInto(contentDiv, currentText);
+  }
   
   return { messageDiv, displayedContent: currentText };
+}
+
+function beginGeneration() {
+  activeGenerationId += 1;
+  stoppedGenerationIds.delete(activeGenerationId);
+  activeGenerationRollback = null;
+  isGenerating = true;
+  stopGeneration = false;
+  updateButtonStates(true);
+  return activeGenerationId;
+}
+
+function isGenerationActive(generationId) {
+  return generationId === activeGenerationId && !stoppedGenerationIds.has(generationId);
+}
+
+function finishGeneration(generationId) {
+  if (generationId !== activeGenerationId) return;
+  isGenerating = false;
+  stopGeneration = false;
+  activeGenerationRollback = null;
+  stoppedGenerationIds.delete(generationId);
+  updateButtonStates(false);
+  userInput.focus();
 }
 
 // 显示/隐藏加载动画
@@ -855,25 +957,22 @@ function showStatus(message, type = 'success') {
   setTimeout(() => statusDiv.classList.add('hidden'), 3000);
 }
 
-async function ensureWorkDirectorySelected() {
-  const workDirectory = await window.electronAPI.storeGet('markdownPath');
-  if (workDirectory) {
-    return true;
-  }
-
-  showStatus('请先到设置 -> 通用设置选择工作目录，再开始使用。', 'warning');
-  window.electronAPI.openSettings();
-  return false;
-}
-
 // 发送消息
 async function sendMessage(isRegenerate = false) {
-  if (!await ensureWorkDirectorySelected()) return;
-
   const question = userInput.value.trim();
 
+  if (!question) {
+    const msg = window.getFriendlyMessage('noInput');
+    showStatus(msg.text, msg.type);
+    return;
+  }
+
   if (pendingImageAttachment) {
-    await sendImageMessage(question || '请分析这张图片');
+    await sendImageMessage(question);
+    return;
+  }
+
+  if (await handleReminderMessage(question)) {
     return;
   }
 
@@ -881,13 +980,7 @@ async function sendMessage(isRegenerate = false) {
     await sendGeneratedImage(question);
     return;
   }
-  
-  if (!question) {
-    const msg = window.getFriendlyMessage('noInput');
-    showStatus(msg.text, msg.type);
-    return;
-  }
-  
+
   const selectedId = configSelect.value;
   if (!selectedId) {
     const msg = window.getFriendlyMessage('noConfig');
@@ -898,12 +991,7 @@ async function sendMessage(isRegenerate = false) {
   // 设置为激活配置
   await window.electronAPI.setActiveConfig(selectedId);
   
-  // 开始生成
-  isGenerating = true;
-  stopGeneration = false;
-  
-  // 更新按钮状态
-  updateButtonStates(true);
+  const generationId = beginGeneration();
   
   // 添加用户消息并记录索引
   const userMsgIndex = conversationHistory.length;
@@ -918,6 +1006,12 @@ async function sendMessage(isRegenerate = false) {
     role: 'user',
     content: question
   });
+  activeGenerationRollback = () => {
+    const lastMessage = apiMessages[apiMessages.length - 1];
+    if (lastMessage?.role === 'user' && lastMessage.content === question) {
+      apiMessages.pop();
+    }
+  };
   
   showLoading();
   
@@ -926,13 +1020,21 @@ async function sendMessage(isRegenerate = false) {
     const requestMessages = buildPersonalizedMessages(apiMessages);
     const response = await window.electronAPI.sendMessage(requestMessages);
     
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
     
     if (response.success) {
       const answer = response.content;
       const model = response.model;
       
-      const result = await addMessageStreaming('assistant', answer, model);
+      const result = await addMessageStreaming(
+        'assistant',
+        answer,
+        model,
+        null,
+        () => !isGenerationActive(generationId)
+      );
+      if (!isGenerationActive(generationId)) return;
       const displayedAnswer = result.displayedContent || answer;
       
       apiMessages.push({
@@ -957,6 +1059,7 @@ async function sendMessage(isRegenerate = false) {
       showStatus(msg.text.split('\n')[0], msg.type);
     }
   } catch (error) {
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
     console.error('发送消息失败:', error);
     const friendlyError = window.formatApiError(error.message);
@@ -964,16 +1067,65 @@ async function sendMessage(isRegenerate = false) {
     addMessage('assistant', msg.text, '提示 💡');
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
-    isGenerating = false;
-    stopGeneration = false;
-    updateButtonStates(false);
-    userInput.focus();
+    finishGeneration(generationId);
   }
 }
 
-async function sendImageMessage(question) {
-  if (!await ensureWorkDirectorySelected()) return;
+async function handleReminderMessage(question) {
+  const parsed = window.ReminderIntent?.parseReminderRequest(question);
+  if (!parsed?.matched) {
+    return false;
+  }
 
+  const userMsgIndex = conversationHistory.length;
+  addMessage('user', question, null, null, userMsgIndex);
+  forceScrollToBottom();
+  userInput.value = '';
+  userInput.style.height = 'auto';
+
+  if (parsed.needsClarification) {
+    const answer = parsed.error;
+    addMessage('assistant', answer, '提醒助手');
+    conversationHistory.push({
+      question,
+      answer,
+      model: '提醒助手'
+    });
+    if (!currentConversationId && conversationHistory.length === 1) {
+      currentConversationTitle = deriveConversationTitle(question);
+    }
+    await persistCurrentConversation();
+    showStatus(answer, 'info');
+    return true;
+  }
+
+  try {
+    const result = await window.electronAPI.saveReminder(parsed.reminder);
+    const answer = result.success
+      ? parsed.confirmation
+      : `提醒创建失败：${result.error || '未知错误'}`;
+
+    addMessage('assistant', answer, result.success ? '提醒助手' : '提示 💡');
+    conversationHistory.push({
+      question,
+      answer,
+      model: '提醒助手'
+    });
+    if (!currentConversationId && conversationHistory.length === 1) {
+      currentConversationTitle = deriveConversationTitle(question);
+    }
+    await persistCurrentConversation();
+    showStatus(result.success ? '提醒已创建' : answer, result.success ? 'success' : 'warning');
+  } catch (error) {
+    const answer = `提醒创建失败：${error.message}`;
+    addMessage('assistant', answer, '提示 💡');
+    showStatus(answer, 'warning');
+  }
+
+  return true;
+}
+
+async function sendImageMessage(question) {
   const selectedId = configSelect.value;
   if (!selectedId) {
     const msg = window.getFriendlyMessage('noConfig');
@@ -985,9 +1137,7 @@ async function sendImageMessage(question) {
   if (!attachment) return;
 
   await window.electronAPI.setActiveConfig(selectedId);
-  isGenerating = true;
-  stopGeneration = false;
-  updateButtonStates(true);
+  const generationId = beginGeneration();
 
   const userMsgIndex = conversationHistory.length;
   addMessage('user', question, null, attachment, userMsgIndex);
@@ -1003,13 +1153,21 @@ async function sendImageMessage(question) {
     const result = imageEditRequested
       ? await window.electronAPI.generateImage(question, attachment.base64, attachment.mimeType)
       : await window.electronAPI.analyzeImage(attachment.base64, buildPersonalizedPrompt(question), attachment.mimeType);
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
 
     if (result.success) {
       if (imageEditRequested) {
         addGeneratedImageMessage(result.image, result.model);
       } else {
-        await addMessageStreaming('assistant', result.content, result.model);
+        await addMessageStreaming(
+          'assistant',
+          result.content,
+          result.model,
+          null,
+          () => !isGenerationActive(generationId)
+        );
+        if (!isGenerationActive(generationId)) return;
       }
       conversationHistory.push({
         question,
@@ -1028,22 +1186,18 @@ async function sendImageMessage(question) {
       showStatus(msg.text.split('\n')[0], msg.type);
     }
   } catch (error) {
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
     const friendlyError = window.formatApiError(error.message);
     const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
     addMessage('assistant', msg.text, '提示 💡');
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
-    isGenerating = false;
-    stopGeneration = false;
-    updateButtonStates(false);
-    userInput.focus();
+    finishGeneration(generationId);
   }
 }
 
 async function sendGeneratedImage(prompt) {
-  if (!await ensureWorkDirectorySelected()) return;
-
   const selectedId = configSelect.value;
   if (!selectedId) {
     const msg = window.getFriendlyMessage('noConfig');
@@ -1052,8 +1206,7 @@ async function sendGeneratedImage(prompt) {
   }
 
   await window.electronAPI.setActiveConfig(selectedId);
-  isGenerating = true;
-  updateButtonStates(true);
+  const generationId = beginGeneration();
   const userMsgIndex = conversationHistory.length;
   addMessage('user', prompt, null, null, userMsgIndex);
   userInput.value = '';
@@ -1063,6 +1216,7 @@ async function sendGeneratedImage(prompt) {
 
   try {
     const result = await window.electronAPI.generateImage(prompt);
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
     if (result.success) {
       addGeneratedImageMessage(result.image, result.model);
@@ -1083,15 +1237,14 @@ async function sendGeneratedImage(prompt) {
       showStatus(msg.text.split('\n')[0], msg.type);
     }
   } catch (error) {
+    if (!isGenerationActive(generationId)) return;
     hideLoading();
     const friendlyError = window.formatApiError(error.message);
     const msg = window.getFriendlyMessage('apiCallFailed', friendlyError);
     addMessage('assistant', msg.text, '提示 💡');
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
-    isGenerating = false;
-    updateButtonStates(false);
-    userInput.focus();
+    finishGeneration(generationId);
   }
 }
 
@@ -1133,8 +1286,27 @@ function addGeneratedImageMessage(image, model) {
 
 // 停止生成
 function handleStopGeneration() {
+  if (!isGenerating) return;
+  stoppedGenerationIds.add(activeGenerationId);
+  activeGenerationRollback?.();
+  activeGenerationRollback = null;
   stopGeneration = true;
-  showStatus('已请求停止生成...', 'info');
+  isGenerating = false;
+  hideLoading();
+  updateButtonStates(false);
+  userInput.focus();
+  showStatus('已停止生成，可以继续发送新消息', 'info');
+}
+
+function collapseHistorySidebar() {
+  historySidebar.classList.add('collapsed');
+}
+
+function handleDocumentClick(event) {
+  if (historySidebar.classList.contains('collapsed')) return;
+  if (historySidebar.contains(event.target) || historyToggleBtn.contains(event.target)) return;
+
+  collapseHistorySidebar();
 }
 
 // 更新按钮状态
@@ -1154,8 +1326,6 @@ function updateButtonStates(generating) {
 
 // 选择截图范围并放入输入区，等待用户补充描述后发送
 async function attachScreenshot() {
-  if (!await ensureWorkDirectorySelected()) return;
-
   const selectedId = configSelect.value;
   if (!selectedId) {
     const msg = window.getFriendlyMessage('noConfig');
@@ -1164,26 +1334,9 @@ async function attachScreenshot() {
   }
   
   const supportsVision = checkCurrentVisionSupport();
-  const currentConfig = apiConfigs.find(c => c.id === selectedId);
-  
+
   if (!supportsVision) {
-    const template = appConfig.providerTemplates[currentConfig.provider];
-    const currentModel = template?.models.find(m => m.id === currentConfig.selectedModel);
-    const visionModels = template?.models.filter(m => m.supportsVision);
-    
-    const allVisionConfigs = apiConfigs.filter(c => {
-      const t = appConfig.providerTemplates[c.provider];
-      const m = t?.models.find(model => model.id === c.selectedModel);
-      return m?.supportsVision === true;
-    }).map(cfg => {
-      const t = appConfig.providerTemplates[cfg.provider];
-      const m = t?.models.find(model => model.id === cfg.selectedModel);
-      return { name: cfg.name, model: m?.name };
-    });
-    
-    const suggestions = window.generateVisionSuggestions(visionModels, allVisionConfigs);
-    const msg = window.getFriendlyMessage('noVisionSupport', currentModel?.name || currentConfig.selectedModel, suggestions);
-    
+    const msg = window.getFriendlyMessage('noConfig');
     addMessage('assistant', msg.text, '柴柴助手 🐕');
     showStatus(msg.text.split('\n')[0], msg.type);
     return;
@@ -1224,8 +1377,6 @@ async function attachScreenshot() {
 
 // 保存对话
 async function saveConversation() {
-  if (!await ensureWorkDirectorySelected()) return;
-
   if (conversationHistory.length === 0) {
     const msg = window.getFriendlyMessage('noConversation');
     showStatus(msg.text, msg.type);
@@ -1262,9 +1413,11 @@ historyToggleBtn.addEventListener('click', () => {
   historySidebar.classList.toggle('collapsed');
 });
 historyCloseBtn.addEventListener('click', () => {
-  historySidebar.classList.add('collapsed');
+  collapseHistorySidebar();
 });
 newConversationBtn.addEventListener('click', () => startNewConversation());
+quickNewConversationBtn.addEventListener('click', () => startNewConversation());
+document.addEventListener('click', handleDocumentClick);
 
 configSelect.addEventListener('change', async () => {
   await updateConfigInfo();

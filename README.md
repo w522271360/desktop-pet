@@ -19,23 +19,12 @@
 
 ## ✨ 功能特性
 
-### 🤖 多模型AI对话（支持 10+ 提供商）
+### 🤖 自定义 AI 对话
 
-**国际服务**
-- **DeepSeek** - DeepSeek-V3 Chat、DeepSeek-R1 推理模型
-- **Google Gemini** - Gemini 3 Pro/Flash、Gemini 2.5 系列（最新）
-- **OpenAI** - GPT-4o、o1/o3 推理系列
-- **Anthropic Claude** - Claude Sonnet 4、Claude 3.5 系列
-- **Groq** - Llama 3.3 70B（免费高速推理）
-
-**国内服务**
-- **智谱 GLM** - GLM-4 Plus、GLM-4V 视觉模型
-- **月之暗面 Kimi** - Moonshot v1 系列（128K 超长上下文）
-- **零一万物 Yi** - Yi Lightning、Yi Large
-- **硅基流动** - Qwen2.5、DeepSeek-V3 托管版
-
-**其他**
-- **自定义 API** - 支持任何 OpenAI 兼容接口，可手动输入模型 ID
+- 支持自定义 OpenAI 兼容接口
+- 支持手动填写 API 地址、API Key 和模型 ID
+- 支持保存多个 API 配置并快速切换
+- 支持测试连接，确认配置可用后再开始对话
 
 ### 👁️ 视觉分析
 - 一键截屏并发送给AI分析
@@ -108,29 +97,14 @@ npm run build:portable
 4. 填写 API 地址和密钥
 5. 点击 **测试连接** 验证配置
 
-#### 支持的 API 提供商
-
-| 提供商 | 默认 API 地址 | 推荐模型 |
-|-------|-------------|---------|
-| DeepSeek | `https://api.deepseek.com/v1/chat/completions` | deepseek-chat, deepseek-reasoner |
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/models` | gemini-3-pro-preview, gemini-2.5-flash |
-| OpenAI | `https://api.openai.com/v1/chat/completions` | gpt-4o, o1, o3-mini |
-| Anthropic Claude | `https://api.anthropic.com/v1/messages` | claude-sonnet-4, claude-3-5-sonnet |
-| Groq (免费) | `https://api.groq.com/openai/v1/chat/completions` | llama-3.3-70b-versatile |
-| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4/chat/completions` | glm-4-plus, glm-4v-plus |
-| 月之暗面 Kimi | `https://api.moonshot.cn/v1/chat/completions` | moonshot-v1-128k |
-| 零一万物 Yi | `https://api.lingyiwanwu.com/v1/chat/completions` | yi-lightning, yi-large |
-| 硅基流动 | `https://api.siliconflow.cn/v1/chat/completions` | Qwen/Qwen2.5-72B-Instruct |
-| 自定义 API | 自行配置 | 支持手动输入任意模型 ID |
-
 ### 自定义 API 配置
 
 适用于使用自定义 OpenAI 兼容 API 的用户：
 
-1. 选择提供商类型为 **自定义 API**
-2. 填写 API 服务提供的接口地址
-3. 填写 API Key
-4. 从列表选择模型，或选择 **手动输入模型 ID** 输入任意模型
+1. 填写 API 服务提供的接口地址
+2. 填写 API Key
+3. 填写当前服务支持的模型 ID
+4. 点击 **测试连接** 验证配置
 
 ---
 
@@ -218,10 +192,8 @@ npm run menu:custom
 ## 📋 更新日志
 
 ### v2.2.0 (2025-12)
-- ✨ 新增 6 个 AI 提供商：Claude、智谱、月之暗面、零一万物、硅基流动、Groq
-- ✨ 更新 Gemini 3 系列模型支持
-- ✨ 新增网络代理配置功能（动态切换，无需重启）
-- ✨ 自定义 API 支持手动输入任意模型 ID
+- ✨ 精简为自定义 OpenAI 兼容 API 配置
+- ✨ 支持手动输入任意模型 ID
 - 🐛 修复编辑配置时 API 地址被重置的问题
 - 💄 优化设置页面 UI
 

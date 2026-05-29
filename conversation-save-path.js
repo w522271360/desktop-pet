@@ -1,11 +1,5 @@
-const { hasConfiguredWorkDirectory, workDirectoryRequiredError } = require('./work-directory');
-
-function resolveConversationSavePath(configuredPath, documentsPath) {
-  if (hasConfiguredWorkDirectory(configuredPath)) {
-    return configuredPath;
-  }
-
-  throw new Error(workDirectoryRequiredError());
+function resolveConversationSavePath(appDataDirectory) {
+  return appDataDirectory;
 }
 
 module.exports = { resolveConversationSavePath };

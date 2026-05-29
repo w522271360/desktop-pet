@@ -22,6 +22,10 @@ const closeReminderModalBtn = document.getElementById('close-reminder-modal-btn'
 const reminderTitleInput = document.getElementById('reminder-title-input');
 const reminderNoteInput = document.getElementById('reminder-note-input');
 const reminderTimeInput = document.getElementById('reminder-time-input');
+const reminderRepeatInput = document.getElementById('reminder-repeat-input');
+const reminderIntervalRow = document.getElementById('reminder-interval-row');
+const reminderIntervalValueInput = document.getElementById('reminder-interval-value-input');
+const reminderIntervalUnitInput = document.getElementById('reminder-interval-unit-input');
 const reminderEnabledInput = document.getElementById('reminder-enabled-input');
 const cancelReminderBtn = document.getElementById('cancel-reminder-btn');
 const saveReminderBtn = document.getElementById('save-reminder-btn');
@@ -44,8 +48,6 @@ const fontSizeSelect = document.getElementById('font-size');
 // DOM元素 - 对话设置
 const autoOpenChatCheckbox = document.getElementById('auto-open-chat');
 const saveHistoryCheckbox = document.getElementById('save-history');
-const markdownPathInput = document.getElementById('markdown-path');
-const changePathBtn = document.getElementById('change-path-btn');
 const assistantNicknameInput = document.getElementById('assistant-nickname');
 const userDisplayNameInput = document.getElementById('user-display-name');
 
@@ -60,8 +62,6 @@ const apiUrlInput = document.getElementById('api-url');
 const apiKeyInput = document.getElementById('api-key');
 const modelSelect = document.getElementById('model-select');
 const modelInfo = document.getElementById('model-info');
-const customModelGroup = document.getElementById('custom-model-group');
-const customModelInput = document.getElementById('custom-model-input');
 const enabledCheckbox = document.getElementById('enabled-checkbox');
 const testConfigBtn = document.getElementById('test-config-btn');
 const saveConfigBtn = document.getElementById('save-config-btn');
@@ -120,20 +120,13 @@ function renderConfigs(activeId) {
 
 // 创建配置卡片
 function createConfigCard(config, isActive) {
-  const provider = config.provider || config.providerType;
-  const template = appConfig.providerTemplates[provider];
-  const modelData = template?.models.find(m => m.id === config.selectedModel);
-  
   const card = document.createElement('div');
   card.className = `config-card ${isActive ? 'active' : ''} ${!config.enabled ? 'disabled' : ''}`;
-  
-  // 使用品牌图标
-  const iconClass = template?.icon || 'custom';
-  
+
   card.innerHTML = `
     <div class="card-header">
       <div class="card-title">
-        <span class="provider-icon ${iconClass}" data-provider="${provider}"></span>
+        <span class="provider-icon custom" data-provider="custom"></span>
         <span>${config.name}</span>
         ${isActive ? '<span class="card-badge active">当前激活</span>' : ''}
         ${!config.enabled ? '<span class="card-badge disabled">已禁用</span>' : ''}
@@ -157,7 +150,7 @@ function createConfigCard(config, isActive) {
       
       <div class="card-field">
         <span class="field-label">模型 ID</span>
-        <div class="field-value">${modelData?.name || config.selectedModel}</div>
+        <div class="field-value">${config.selectedModel}</div>
       </div>
     </div>
     
@@ -187,6 +180,22 @@ function formatReminderDateTime(value) {
     hour: '2-digit',
     minute: '2-digit'
   });
+}
+
+function formatReminderRecurrence(recurrence = {}) {
+  if (!recurrence.frequency || recurrence.frequency === 'none') return '仅一次';
+  if (recurrence.frequency === 'daily') return '每天重复';
+  if (recurrence.frequency === 'weekly') return '每周重复';
+  if (recurrence.frequency === 'monthly') return '每月重复';
+  if (recurrence.frequency === 'interval') {
+    const unitText = {
+      minutes: '分钟',
+      hours: '小时',
+      days: '天'
+    }[recurrence.intervalUnit] || '天';
+    return `每 ${recurrence.intervalValue || 1} ${unitText}重复`;
+  }
+  return '仅一次';
 }
 
 function toDateTimeLocalValue(value) {
@@ -219,18 +228,20 @@ function renderReminders() {
 function createReminderCard(reminder) {
   const isAcknowledged = reminder.status === 'acknowledged';
   const isDue = !isAcknowledged && new Date(reminder.scheduledAt).getTime() <= Date.now();
+  const recurrenceText = formatReminderRecurrence(reminder.recurrence);
   const card = document.createElement('div');
   card.className = `reminder-card ${reminder.enabled ? '' : 'disabled'} ${isDue ? 'due' : ''}`;
   card.innerHTML = `
     <div class="reminder-card-main">
       <div class="reminder-card-title">
         <span>${escapeHtml(reminder.title)}</span>
+        ${reminder.recurrence?.frequency && reminder.recurrence.frequency !== 'none' ? '<span class="card-badge repeat">循环</span>' : ''}
         ${isDue ? '<span class="card-badge active">待确认</span>' : ''}
         ${isAcknowledged ? '<span class="card-badge disabled">已确认</span>' : ''}
         ${!reminder.enabled ? '<span class="card-badge disabled">已停用</span>' : ''}
       </div>
       ${reminder.note ? `<div class="reminder-card-note">${escapeHtml(reminder.note)}</div>` : ''}
-      <div class="reminder-card-time">${formatReminderDateTime(reminder.scheduledAt)}</div>
+      <div class="reminder-card-time">${formatReminderDateTime(reminder.scheduledAt)} · ${escapeHtml(recurrenceText)}</div>
     </div>
     <div class="reminder-card-actions">
       <label class="switch" title="启用提醒">
@@ -311,13 +322,6 @@ async function loadChatSettings() {
   if (userDisplayNameInput) {
     userDisplayNameInput.value = userDisplayName;
   }
-  
-  // 加载工作目录（沿用旧存储键以兼容已有配置）
-  const markdownPath = await window.electronAPI.storeGet('markdownPath') || '';
-  if (markdownPathInput) {
-    markdownPathInput.value = markdownPath;
-  }
-  
 }
 
 // 加载宠物设置
@@ -379,6 +383,7 @@ function bindEvents() {
   cancelReminderBtn?.addEventListener('click', closeReminderModal);
   document.querySelector('.reminder-modal-overlay')?.addEventListener('click', closeReminderModal);
 
+  reminderRepeatInput?.addEventListener('change', updateReminderIntervalVisibility);
   saveReminderBtn?.addEventListener('click', saveCurrentReminder);
 
   remindersContainer?.addEventListener('click', async (event) => {
@@ -494,17 +499,6 @@ function bindEvents() {
     await window.electronAPI.storeSet('userDisplayName', displayName);
     showToast(displayName ? `✅ 助手会称呼你为「${displayName}」` : '✅ 已恢复默认称呼「你」', 'success');
   });
-  
-  // 选择工作目录
-  changePathBtn?.addEventListener('click', async () => {
-    const result = await window.electronAPI.selectDirectory();
-    if (result.success) {
-      markdownPathInput.value = result.path;
-      await window.electronAPI.storeSet('markdownPath', result.path);
-      showToast('📁 工作目录已设置，可以开始使用啦！', 'success');
-    }
-  });
-  
   // 夜间模式切换
   darkModeToggle?.addEventListener('change', async () => {
     const isDarkMode = darkModeToggle.checked;
@@ -583,12 +577,29 @@ function bindEvents() {
   window.electronAPI.onRemindersChanged?.(loadReminders);
 }
 
+function updateReminderIntervalVisibility() {
+  reminderIntervalRow?.classList.toggle('hidden', reminderRepeatInput?.value !== 'interval');
+}
+
+function areRecurrencesEqual(left = {}, right = {}) {
+  const leftFrequency = left.frequency || 'none';
+  const rightFrequency = right.frequency || 'none';
+  if (leftFrequency !== rightFrequency) return false;
+  if (leftFrequency !== 'interval') return true;
+  return Number(left.intervalValue || 1) === Number(right.intervalValue || 1)
+    && (left.intervalUnit || 'days') === (right.intervalUnit || 'days');
+}
+
 function openReminderModal(reminder = null) {
   editingReminderId = reminder?.id || null;
   reminderModalTitle.textContent = reminder ? '编辑提醒' : '添加提醒';
   reminderTitleInput.value = reminder?.title || '';
   reminderNoteInput.value = reminder?.note || '';
   reminderTimeInput.value = toDateTimeLocalValue(reminder?.scheduledAt);
+  reminderRepeatInput.value = reminder?.recurrence?.frequency || 'none';
+  reminderIntervalValueInput.value = reminder?.recurrence?.intervalValue || 1;
+  reminderIntervalUnitInput.value = reminder?.recurrence?.intervalUnit || 'days';
+  updateReminderIntervalVisibility();
   reminderEnabledInput.checked = reminder?.enabled !== false;
   reminderModal.classList.remove('hidden');
   reminderTitleInput.focus();
@@ -610,14 +621,24 @@ async function saveCurrentReminder() {
 
   const existing = reminders.find(reminder => reminder.id === editingReminderId);
   const scheduledAt = new Date(scheduledAtValue).toISOString();
+  const recurrence = {
+    frequency: reminderRepeatInput.value
+  };
+  if (recurrence.frequency === 'interval') {
+    recurrence.intervalValue = Math.max(1, Math.floor(Number(reminderIntervalValueInput.value || 1)));
+    recurrence.intervalUnit = reminderIntervalUnitInput.value;
+  }
   const reminder = {
     ...(existing || {}),
     id: editingReminderId || undefined,
     title,
     note: reminderNoteInput.value.trim(),
     scheduledAt,
+    recurrence,
     enabled: reminderEnabledInput.checked,
-    status: existing?.scheduledAt !== scheduledAt || existing?.status === 'acknowledged'
+    status: existing?.scheduledAt !== scheduledAt
+        || !areRecurrencesEqual(existing?.recurrence, recurrence)
+        || existing?.status === 'acknowledged'
       ? 'scheduled'
       : existing?.status
   };
@@ -651,7 +672,7 @@ function openModal(config = null) {
   if (config) {
     modalTitle.textContent = '编辑配置';
     configNameInput.value = config.name;
-    providerTypeSelect.value = config.provider || config.providerType || 'custom';
+    providerTypeSelect.value = 'custom';
     apiUrlInput.value = config.apiUrl;
     apiKeyInput.value = config.apiKey;
     modelSelect.value = config.selectedModel || '';
@@ -679,123 +700,21 @@ function closeModal() {
 
 // 提供商类型变化
 function onProviderTypeChange() {
-  if (modelSelect?.tagName === 'INPUT') return;
-  const provider = providerTypeSelect.value;
-  
-  if (!provider) {
-    modelSelect.innerHTML = '<option value="">请先选择提供商类型</option>';
-    apiUrlInput.value = '';
-    modelInfo.classList.remove('show');
-    customModelGroup?.classList.add('hidden');
-    return;
-  }
-  
-  const template = appConfig.providerTemplates[provider];
-  
-  // 只有在新建模式（非编辑）或当前 URL 为空时才设置默认 URL
-  // 编辑模式下保留用户已保存的 API 地址
+  const template = appConfig.providerTemplates.custom;
   if (!editingConfigId || !apiUrlInput.value.trim()) {
     apiUrlInput.value = template.defaultApiUrl;
   }
-  
-  // 隐藏自定义输入框（默认）
-  customModelGroup?.classList.add('hidden');
-  modelSelect.style.display = '';
-  
-  // 填充模型列表
-  modelSelect.innerHTML = '';
-  template.models.forEach(model => {
-    const option = document.createElement('option');
-    option.value = model.id;
-    
-    // 特殊处理自定义输入选项
-    if (model.isCustomInput) {
-      option.textContent = model.name;
-      option.dataset.customInput = 'true';
-    } else {
-      option.textContent = model.name + (model.recommended ? ' ⭐' : '');
-    }
-    
-    modelSelect.appendChild(option);
-  });
-  
-  modelSelect.value = template.defaultModel;
   onModelChange();
 }
 
 // 模型选择变化
 function onModelChange() {
-  if (modelSelect?.tagName === 'INPUT') {
-    modelInfo.classList.remove('show');
-    return;
-  }
-  const provider = providerTypeSelect.value;
-  const template = appConfig.providerTemplates[provider];
-  const modelId = modelSelect.value;
-  
-  if (!provider || !modelId) {
-    modelInfo.classList.remove('show');
-    customModelGroup?.classList.add('hidden');
-    return;
-  }
-  
-  // 检查是否选择了"手动输入"选项
-  const selectedOption = modelSelect.options[modelSelect.selectedIndex];
-  const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
-  
-  if (isCustomInputSelected) {
-    // 显示自定义输入框
-    customModelGroup?.classList.remove('hidden');
-    if (customModelInput) {
-      customModelInput.placeholder = '输入您的模型 ID，如 gpt-4o-2024-08-06';
-      customModelInput.focus();
-    }
-    modelInfo.innerHTML = `
-      <strong>💡 手动输入说明：</strong><br>
-      • 输入当前 API 服务支持的任意模型 ID<br>
-      • 模型 ID 区分大小写，请确保拼写正确
-    `;
-    modelInfo.classList.add('show');
-    return;
-  }
-  
-  // 隐藏自定义输入框
-  customModelGroup?.classList.add('hidden');
-  
-  const model = template?.models.find(m => m.id === modelId);
-  
-  if (model) {
-    let info = model.description || '';
-    if (model.contextLength) info += `<br>上下文: ${model.contextLength}`;
-    if (model.maxOutput) info += ` | 输出: ${model.maxOutput}`;
-    
-    modelInfo.innerHTML = info;
-    modelInfo.classList.add('show');
-  } else {
-    modelInfo.classList.remove('show');
-  }
+  modelInfo.classList.remove('show');
 }
 
 // 获取当前选择的模型 ID
 function getSelectedModel() {
-  if (modelSelect?.tagName === 'INPUT') {
-    return modelSelect.value.trim() || null;
-  }
-  const modelId = modelSelect.value;
-  
-  // 检查是否选择了"手动输入"选项
-  const selectedOption = modelSelect.options[modelSelect.selectedIndex];
-  const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
-  
-  if (isCustomInputSelected && customModelInput) {
-    const customValue = customModelInput.value.trim();
-    if (!customValue) {
-      return null; // 返回 null 表示未填写
-    }
-    return customValue;
-  }
-  
-  return modelId;
+  return modelSelect.value.trim() || null;
 }
 
 // 测试当前配置
@@ -808,21 +727,13 @@ async function testCurrentConfig() {
     selectedModel: selectedModel
   };
   
-  // 检查是否选择了手动输入但没填写
-  const selectedOption = modelSelect.options?.[modelSelect.selectedIndex];
-  const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
-  
   if (!config.provider || !config.apiUrl || !config.apiKey) {
     showTestResult(false, '📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！');
     return;
   }
   
   if (!config.selectedModel) {
-    if (isCustomInputSelected) {
-      showTestResult(false, '📝 您选择了手动输入模型，请在下方输入框填写模型 ID~');
-    } else {
-      showTestResult(false, '📝 请选择一个模型~');
-    }
+    showTestResult(false, '📝 请填写模型 ID~');
     return;
   }
   
@@ -864,21 +775,13 @@ async function saveCurrentConfig() {
     enabled: enabledCheckbox.checked
   };
   
-  // 检查是否选择了手动输入但没填写
-  const selectedOption = modelSelect.options?.[modelSelect.selectedIndex];
-  const isCustomInputSelected = selectedOption?.dataset.customInput === 'true';
-  
   if (!config.name || !config.provider || !config.apiUrl || !config.apiKey) {
     showToast('📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！', 'info');
     return;
   }
   
   if (!config.selectedModel) {
-    if (isCustomInputSelected) {
-      showToast('📝 您选择了手动输入模型，请在下方输入框填写模型 ID~', 'info');
-    } else {
-      showToast('📝 请选择一个模型~', 'info');
-    }
+    showToast('📝 请填写模型 ID~', 'info');
     return;
   }
   

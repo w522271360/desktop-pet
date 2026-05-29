@@ -37,8 +37,23 @@ function sortConversations(conversations) {
 }
 
 function createConversationHistoryStore(store) {
+  function readConversations() {
+    if (typeof store.getConversationRecords === 'function') {
+      return store.getConversationRecords();
+    }
+    return store.get('conversationRecords', []);
+  }
+
+  function writeConversations(conversations) {
+    if (typeof store.setConversationRecords === 'function') {
+      store.setConversationRecords(conversations);
+      return;
+    }
+    store.set('conversationRecords', conversations);
+  }
+
   function getAll() {
-    return sortConversations(store.get('conversationRecords', []));
+    return sortConversations(readConversations());
   }
 
   function get(id) {
@@ -46,7 +61,7 @@ function createConversationHistoryStore(store) {
   }
 
   function upsert(conversation) {
-    const conversations = store.get('conversationRecords', []);
+    const conversations = readConversations();
     const index = conversations.findIndex(item => item.id === conversation.id);
     const existing = index >= 0 ? conversations[index] : {};
     const saved = normalizeConversation(conversation, existing);
@@ -57,12 +72,12 @@ function createConversationHistoryStore(store) {
       conversations.push(saved);
     }
 
-    store.set('conversationRecords', sortConversations(conversations));
+    writeConversations(sortConversations(conversations));
     return saved;
   }
 
   function rename(id, title) {
-    const conversations = store.get('conversationRecords', []);
+    const conversations = readConversations();
     const index = conversations.findIndex(item => item.id === id);
     if (index === -1) return null;
 
@@ -71,14 +86,14 @@ function createConversationHistoryStore(store) {
       title: normalizeTitle(title),
       updatedAt: nowIso()
     };
-    store.set('conversationRecords', sortConversations(conversations));
+    writeConversations(sortConversations(conversations));
     return conversations[index];
   }
 
   function remove(id) {
-    const conversations = store.get('conversationRecords', []);
+    const conversations = readConversations();
     const filtered = conversations.filter(item => item.id !== id);
-    store.set('conversationRecords', filtered);
+    writeConversations(filtered);
     return filtered.length !== conversations.length;
   }
 

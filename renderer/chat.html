@@ -19,6 +19,10 @@
         </div>
       </div>
       <div class="toolbar-right">
+        <button id="quick-new-conversation-btn" class="toolbar-action-btn" type="button" title="开启新对话">
+          <span class="toolbar-action-icon">＋</span>
+          <span>新对话</span>
+        </button>
         <button id="history-toggle-btn" class="toolbar-icon-btn" title="对话记录">☰</button>
         <button id="settings-btn" class="toolbar-icon-btn" title="设置">⚙️</button>
       </div>
@@ -101,8 +105,10 @@
 
 <!-- 先加载友好消息模块 -->
 <script src="friendly-messages.js"></script>
+<script src="markdown-renderer.js"></script>
 <script src="image-attachment.js"></script>
 <script src="image-intent.js"></script>
+<script src="reminder-intent.js"></script>
 <!-- 再加载主逻辑 -->
 <script src="chat.js"></script>
 </body>

@@ -1,6 +1,5 @@
-// 多配置 API 服务 - 支持最新模型和智能视觉分析
+// 多配置 API 服务 - 使用自定义 OpenAI 兼容接口
 const axios = require('axios');
-const config = require('./config');
 const store = require('./store');
 const { supportsVision } = require('./vision-capabilities');
 const {
@@ -85,75 +84,20 @@ function logApiError(label, error) {
 }
 
 class APIService {
-  // 检查配置是否支持视觉
   checkVisionSupport(apiConfig) {
-    return supportsVision(apiConfig, config.providerTemplates);
+    return supportsVision(apiConfig);
   }
 
-  // 通用测试连接方法
   async testConnection(apiConfig) {
-    const { provider, apiUrl, apiKey, selectedModel } = apiConfig;
-    const template = config.providerTemplates[provider];
-    
-    if (!template) {
-      return { success: false, error: '咦？这个提供商我还不认识呢 🤔\n\n试试选择 DeepSeek、Gemini 或 OpenAI 兼容的吧~' };
-    }
-
+    const { apiUrl, apiKey, selectedModel } = apiConfig;
     try {
-      // Gemini 使用特殊的 API 格式
-      if (provider === 'gemini') {
-        return await this.testGemini(apiUrl, apiKey, selectedModel);
-      }
-      
-      // Claude 使用 Anthropic API 格式
-      if (provider === 'claude') {
-        return await this.testClaude(apiUrl, apiKey, selectedModel);
-      }
-      
-      // 其他所有供应商都使用 OpenAI 兼容格式
-      // 包括: deepseek, openai, zhipu, moonshot, yi, siliconflow, groq, custom
       return await this.testOpenAICompatible(apiUrl, apiKey, selectedModel);
     } catch (error) {
       return { success: false, error: formatFriendlyError(error) };
     }
   }
-  
-  // 测试 Claude (Anthropic) API
-  async testClaude(apiUrl, apiKey, model) {
-    try {
-      const response = await axios.post(
-        apiUrl,
-        {
-          model: model,
-          max_tokens: 10,
-          messages: [{ role: 'user', content: '你好' }]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          timeout: 15000
-        }
-      );
 
-      return {
-        success: true,
-        message: '✅ 耶！Claude 连接成功啦~ 可以开始对话了！',
-        response: response.data
-      };
-    } catch (error) {
-      logApiError('Claude API测试失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
-  }
-
-  // 测试 OpenAI 兼容 API（DeepSeek、OpenAI、自定义）
+  // 测试 OpenAI 兼容 API
   async testOpenAICompatible(apiUrl, apiKey, model) {
     try {
       const finalUrl = resolveChatCompletionsUrl(apiUrl);
@@ -181,42 +125,6 @@ class APIService {
       };
     } catch (error) {
       logApiError('API测试失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
-  }
-
-  // 测试 Gemini API
-  async testGemini(apiUrl, apiKey, model) {
-    try {
-      const url = `${apiUrl}/${model}:generateContent?key=${apiKey}`;
-      
-      const response = await axios.post(
-        url,
-        {
-          contents: [{
-            role: 'user',
-            parts: [{ text: '你好' }]
-          }]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          timeout: 15000
-        }
-      );
-
-      return {
-        success: true,
-        message: '✅ 耶！连接成功啦~ 可以开始对话了！',
-        response: response.data
-      };
-    } catch (error) {
-      logApiError('Gemini测试失败:', error);
       const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
       return {
         success: false,
@@ -316,89 +224,6 @@ class APIService {
     }
   }
 
-  // 调用 Gemini API（支持视觉）
-  async callGeminiWithVision(messages, base64Image, apiConfig, mimeType = 'image/png') {
-    const { apiUrl, apiKey, selectedModel, name } = apiConfig;
-    
-    try {
-      const url = `${apiUrl}/${selectedModel}:generateContent?key=${apiKey}`;
-      
-      const response = await axios.post(
-        url,
-        {
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: messages[messages.length - 1].content },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64Image
-                }
-              }
-            ]
-          }]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      return {
-        success: true,
-        content: response.data.candidates[0].content.parts[0].text,
-        model: `${name} (${selectedModel})`
-      };
-    } catch (error) {
-      logApiError('Gemini视觉API调用失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
-  }
-
-  // 调用 Gemini API（普通对话）
-  async callGemini(messages, apiConfig) {
-    const { apiUrl, apiKey, selectedModel, name } = apiConfig;
-    
-    try {
-      // 转换消息格式
-      const contents = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-      }));
-
-      const url = `${apiUrl}/${selectedModel}:generateContent?key=${apiKey}`;
-      
-      const response = await axios.post(
-        url,
-        { contents },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      return {
-        success: true,
-        content: response.data.candidates[0].content.parts[0].text,
-        model: `${name} (${selectedModel})`
-      };
-    } catch (error) {
-      logApiError('Gemini调用失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
-  }
-
   // 图片分析 - 使用当前激活的配置（支持截图和粘贴的图片）
   async analyzeImage(base64Image, prompt, mimeType = 'image/png') {
     const activeConfig = store.getActiveConfig();
@@ -410,24 +235,13 @@ class APIService {
       };
     }
 
-    // 检查是否支持视觉
     if (!this.checkVisionSupport(activeConfig)) {
-      const template = config.providerTemplates[activeConfig.provider];
-      const model = template?.models.find(m => m.id === activeConfig.selectedModel);
-      
-      // 查找该提供商下支持视觉的模型
-      const visionModels = template?.models.filter(m => m.supportsVision);
-      const visionModelNames = visionModels?.map(m => m.name).join('、');
-      
       return {
         success: false,
-        error: `🎨 当前模型 "${model?.name || activeConfig.selectedModel}" 还不会看图片呢~\n\n推荐试试这些支持视觉的模型：\n${visionModelNames || 'DeepSeek-V3.2 Chat、Gemini 2.5 Flash、GPT-4o'}\n\n💡 在设置中切换模型就可以啦！`
+        error: `🎨 当前模型 "${activeConfig.selectedModel}" 还不会看图片呢~\n\n请在自定义 API 中切换到支持视觉的模型。`
       };
     }
 
-    const { provider } = activeConfig;
-    
-    // 构建分析消息
     const analysisMessage = [
       { 
         role: 'user', 
@@ -436,14 +250,7 @@ class APIService {
     ];
     
     try {
-      if (provider === 'gemini') {
-        return await this.callGeminiWithVision(analysisMessage, base64Image, activeConfig, mimeType);
-      } else if (provider === 'claude') {
-        return await this.callClaudeWithVision(analysisMessage, base64Image, activeConfig, mimeType);
-      } else {
-        // DeepSeek、OpenAI等使用OpenAI兼容格式
-        return await this.callOpenAICompatibleWithVision(analysisMessage, base64Image, activeConfig, mimeType);
-      }
+      return await this.callOpenAICompatibleWithVision(analysisMessage, base64Image, activeConfig, mimeType);
     } catch (error) {
       const friendlyError = formatFriendlyError(error.message);
       return {
@@ -468,13 +275,6 @@ class APIService {
       return {
         success: false,
         error: '还没有 API 密钥，无法生成图片。请先在设置中配置 API。'
-      };
-    }
-
-    if (!['custom', 'openai'].includes(activeConfig.provider)) {
-      return {
-        success: false,
-        error: '当前仅支持通过 OpenAI 兼容或自定义 API 配置生成图片。'
       };
     }
 
@@ -559,62 +359,6 @@ class APIService {
     }
   }
   
-  // 调用 Claude API（支持视觉）
-  async callClaudeWithVision(messages, base64Image, apiConfig, mimeType = 'image/png') {
-    const { apiUrl, apiKey, selectedModel, name } = apiConfig;
-    
-    try {
-      const response = await axios.post(
-        apiUrl,
-        {
-          model: selectedModel,
-          max_tokens: 4096,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: messages[messages.length - 1].content
-              },
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mimeType,
-                  data: base64Image
-                }
-              }
-            ]
-          }]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          timeout: 60000
-        }
-      );
-
-      const content = response.data.content?.[0]?.text || '';
-      
-      return {
-        success: true,
-        content: content,
-        model: `${name} (${selectedModel})`
-      };
-    } catch (error) {
-      logApiError('Claude视觉API调用失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
-  }
-
-  // 发送消息（使用当前激活的配置）
   async sendMessage(messages) {
     const activeConfig = store.getActiveConfig();
     
@@ -625,78 +369,7 @@ class APIService {
       };
     }
 
-    const { provider } = activeConfig;
-    
-    if (provider === 'gemini') {
-      return await this.callGemini(messages, activeConfig);
-    } else if (provider === 'claude') {
-      return await this.callClaude(messages, activeConfig);
-    } else {
-      // 所有其他供应商使用 OpenAI 兼容格式
-      return await this.callOpenAICompatible(messages, activeConfig);
-    }
-  }
-  
-  // 调用 Claude (Anthropic) API
-  async callClaude(messages, apiConfig) {
-    const { apiUrl, apiKey, selectedModel, name } = apiConfig;
-    
-    try {
-      // 转换消息格式：提取 system 消息
-      let systemPrompt = '';
-      const claudeMessages = [];
-      
-      for (const msg of messages) {
-        if (msg.role === 'system') {
-          systemPrompt = msg.content;
-        } else {
-          claudeMessages.push({
-            role: msg.role,
-            content: msg.content
-          });
-        }
-      }
-      
-      const requestBody = {
-        model: selectedModel,
-        max_tokens: 4096,
-        messages: claudeMessages
-      };
-      
-      // 如果有 system 消息，添加到请求中
-      if (systemPrompt) {
-        requestBody.system = systemPrompt;
-      }
-      
-      const response = await axios.post(
-        apiUrl,
-        requestBody,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          timeout: 60000
-        }
-      );
-
-      // Claude 响应格式不同
-      const content = response.data.content?.[0]?.text || '';
-      
-      return {
-        success: true,
-        content: content,
-        model: `${name} (${selectedModel})`
-      };
-    } catch (error) {
-      logApiError('Claude API调用失败:', error);
-      const friendlyError = formatFriendlyError(error.response?.data?.error?.message || error.message);
-      return {
-        success: false,
-        error: friendlyError
-      };
-    }
+    return await this.callOpenAICompatible(messages, activeConfig);
   }
 
 }

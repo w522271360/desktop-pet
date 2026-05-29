@@ -190,39 +190,67 @@
     #context-menu {
       display: none;
       position: fixed;
-      min-width: 150px;
-      max-width: 180px;
+      min-width: 104px;
+      max-width: 116px;
+      padding: 5px;
       overflow: hidden;
-      border: 1px solid rgba(255, 152, 0, 0.16);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.96);
-      box-shadow: 0 14px 36px rgba(38, 26, 12, 0.22);
+      border: 1px solid rgba(189, 143, 103, 0.26);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow:
+        0 18px 36px rgba(38, 26, 12, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
       z-index: 1000;
-      backdrop-filter: blur(14px);
+      backdrop-filter: blur(18px) saturate(1.15);
       -webkit-app-region: no-drag;
+      transform-origin: 12px 50%;
+      animation: contextMenuIn 0.16s ease;
     }
 
     #context-menu.show {
       display: block;
     }
 
+    #context-menu::before {
+      content: "";
+      position: absolute;
+      left: -6px;
+      top: 26px;
+      width: 14px;
+      height: 14px;
+      border-left: 1px solid rgba(189, 143, 103, 0.22);
+      border-bottom: 1px solid rgba(189, 143, 103, 0.22);
+      background: rgba(255, 255, 255, 0.88);
+      transform: rotate(45deg);
+      backdrop-filter: blur(18px);
+    }
+
     .menu-item {
-      padding: 10px 13px;
-      color: var(--ink);
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      border: none;
+      border-radius: 11px;
+      padding: 9px 8px;
+      color: #3b2a1d;
+      background: transparent;
       cursor: pointer;
       font-size: 14px;
-      transition: background 0.15s ease;
+      font-weight: 650;
+      line-height: 1.2;
+      text-align: center;
+      transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
     }
 
     .menu-item:hover {
-      background: #fff3df;
+      background: rgba(255, 152, 0, 0.14);
+      color: #d96f00;
+      transform: translateY(-1px);
     }
 
-    .menu-divider {
-      height: 1px;
-      margin: 4px 0;
-      background: rgba(255, 152, 0, 0.16);
+    .menu-item + .menu-item {
+      margin-top: 3px;
     }
 
     @keyframes shadowPulse {
@@ -264,6 +292,17 @@
         transform: translateY(-5px);
       }
     }
+
+    @keyframes contextMenuIn {
+      from {
+        opacity: 0;
+        transform: translateX(-6px) scale(0.96);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+    }
   </style>
 </head>
 <body>
@@ -286,11 +325,8 @@
   </div>
 
   <div id="context-menu">
-    <div class="menu-item" id="menu-chat">💬 打开对话</div>
-    <div class="menu-item" id="menu-settings">⚙️ 设置</div>
-    <div class="menu-item" id="menu-restart">🔄 重启</div>
-    <div class="menu-divider"></div>
-    <div class="menu-item" id="menu-quit">❌ 退出</div>
+    <button class="menu-item" id="menu-quit" type="button">关闭宠物</button>
+    <button class="menu-item" id="menu-restart" type="button">重新打开</button>
   </div>
 
   <script>
@@ -324,6 +360,9 @@
       onPetSizeUpdated: () => {}
     };
     const petAPI = { ...fallbackElectronAPI, ...(window.electronAPI || {}) };
+    const closeContextMenu = () => {
+      contextMenu.classList.remove('show');
+    };
 
     window.__petDebug = {
       openChatCalls: 0,
@@ -593,6 +632,7 @@
       isDraggingWindow = false;
       mouseStart = null;
       setPetState('idle');
+      closeContextMenu();
     });
 
     petImage.addEventListener('contextmenu', (event) => {
@@ -601,8 +641,8 @@
 
       let menuX = event.clientX + 36;
       let menuY = event.clientY;
-      const menuWidth = 150;
-      const menuHeight = 168;
+      const menuWidth = 116;
+      const menuHeight = 84;
 
       if (menuX + menuWidth > window.innerWidth) {
         menuX = Math.max(5, window.innerWidth - menuWidth - 5);
@@ -617,12 +657,16 @@
       contextMenu.classList.add('show');
     });
 
-    document.addEventListener('click', () => {
-      contextMenu.classList.remove('show');
+    document.addEventListener('pointerdown', (event) => {
+      if (contextMenu.contains(event.target)) return;
+      closeContextMenu();
+    }, true);
+
+    document.addEventListener('click', (event) => {
+      if (contextMenu.contains(event.target)) return;
+      closeContextMenu();
     });
 
-    document.getElementById('menu-chat').addEventListener('click', openChat);
-    document.getElementById('menu-settings').addEventListener('click', openSettings);
     document.getElementById('menu-restart').addEventListener('click', () => {
       petAPI.restartApp();
     });

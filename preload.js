@@ -214,14 +214,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPetSizeUpdated: (callback) => {
     ipcRenderer.on('pet-size-updated', (event, size) => callback(size));
   },
-  
-  // ========== 文件/目录选择 API ==========
-  
-  // 选择目录
-  selectDirectory: async () => {
-    return await ipcRenderer.invoke('select-directory');
-  },
-  
   // ========== 对话界面设置 API ==========
   
   // 更新聊天主题色

@@ -23,12 +23,14 @@ test('normalizes reminder input and trims display text', () => {
   const reminder = normalizeReminder({
     title: '  喝水  ',
     note: '  站起来走走  ',
-    scheduledAt: '2026-05-27T09:00:00+08:00'
+    scheduledAt: '2026-05-27T09:00:00+08:00',
+    recurrence: { frequency: 'daily' }
   }, {}, options);
 
   assert.equal(reminder.id, 'reminder-1');
   assert.equal(reminder.title, '喝水');
   assert.equal(reminder.note, '站起来走走');
+  assert.deepEqual(reminder.recurrence, { frequency: 'daily' });
   assert.equal(reminder.enabled, true);
   assert.equal(reminder.status, 'scheduled');
   assert.equal(reminder.acknowledgedAt, null);
@@ -85,4 +87,48 @@ test('acknowledges a reminder and removes it from due results', () => {
   assert.equal(acknowledged.status, 'acknowledged');
   assert.equal(acknowledged.acknowledgedAt, '2026-05-27T08:00:00.000Z');
   assert.deepEqual(manager.getDueReminders(fixedNow()), []);
+});
+
+test('acknowledges recurring reminders by scheduling the next occurrence', () => {
+  const store = createMemoryStore({
+    reminders: [
+      {
+        id: 'a',
+        title: '喝水',
+        scheduledAt: '2026-05-27T07:30:00.000Z',
+        recurrence: { frequency: 'daily' },
+        enabled: true,
+        status: 'due'
+      }
+    ]
+  });
+  const manager = createReminderManager(store, options);
+
+  const acknowledged = manager.acknowledgeReminder('a');
+
+  assert.equal(acknowledged.status, 'scheduled');
+  assert.equal(acknowledged.scheduledAt, '2026-05-28T07:30:00.000Z');
+  assert.equal(acknowledged.acknowledgedAt, '2026-05-27T08:00:00.000Z');
+  assert.deepEqual(manager.getDueReminders(fixedNow()), []);
+});
+
+test('skips missed interval occurrences when recurring reminders are acknowledged late', () => {
+  const store = createMemoryStore({
+    reminders: [
+      {
+        id: 'a',
+        title: '站起来',
+        scheduledAt: '2026-05-27T07:00:00.000Z',
+        recurrence: { frequency: 'interval', intervalValue: 20, intervalUnit: 'minutes' },
+        enabled: true,
+        status: 'due'
+      }
+    ]
+  });
+  const manager = createReminderManager(store, options);
+
+  const acknowledged = manager.acknowledgeReminder('a');
+
+  assert.equal(acknowledged.status, 'scheduled');
+  assert.equal(acknowledged.scheduledAt, '2026-05-27T08:20:00.000Z');
 });

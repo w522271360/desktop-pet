@@ -31,8 +31,7 @@
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "electron-store": "^8.1.0"
+    "axios": "^1.6.0"
   },
   "build": {
     "appId": "com.king.desktop-helper",
@@ -48,10 +47,10 @@
       "generated-image-export.js",
       "conversation-history.js",
       "conversation-save-path.js",
-      "work-directory.js",
       "image-generation-config.js",
       "image-generation-log.js",
       "reminder-manager.js",
+      "portable-restart.js",
       "preload.js",
       "config.js",
       "config/prompt-templates.json",
@@ -63,6 +62,8 @@
       "assets/yier/**/*",
       "assets/shiba.jpg",
       "assets/icon.png",
+      "assets/icon.ico",
+      "assets/icon.icns",
       "node_modules/**/*",
       "!node_modules/.cache/**",
       "!**/*.md",
@@ -78,8 +79,11 @@
           ]
         }
       ],
-      "icon": "assets/icon.png",
+      "icon": "assets/icon.ico",
       "signAndEditExecutable": false
+    },
+    "mac": {
+      "icon": "assets/icon.icns"
     },
     "nsis": {
       "oneClick": false,
