@@ -243,6 +243,60 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifyChatReadyForPaste: () => {
     ipcRenderer.send('chat-ready-for-paste');
   },
+
+  // ========== 联网服务 API ==========
+
+  getPetNetworkState: async () => {
+    return await ipcRenderer.invoke('pet-network-get-state');
+  },
+
+  getPetNetworkUsers: async () => {
+    return await ipcRenderer.invoke('pet-network-get-users');
+  },
+
+  connectPetNetwork: async () => {
+    return await ipcRenderer.invoke('pet-network-connect');
+  },
+
+  disconnectPetNetwork: async () => {
+    return await ipcRenderer.invoke('pet-network-disconnect');
+  },
+
+  setPetNetworkMode: async (mode) => {
+    return await ipcRenderer.invoke('pet-network-set-mode', { mode });
+  },
+
+  updatePetNetworkConfig: async (config) => {
+    return await ipcRenderer.invoke('pet-network-update-config', { config });
+  },
+
+  sendPetNetworkChat: async (payload) => {
+    return await ipcRenderer.invoke('pet-network-send-chat', payload);
+  },
+
+  closePetNetworkBubble: () => {
+    ipcRenderer.send('pet-network-bubble-closed');
+  },
+
+  onPetNetworkStateChanged: (callback) => {
+    ipcRenderer.on('pet-network-state-changed', (event, payload) => callback(payload));
+  },
+
+  onPetNetworkUsersChanged: (callback) => {
+    ipcRenderer.on('pet-network-users-changed', (event, payload) => callback(payload));
+  },
+
+  onPetNetworkChat: (callback) => {
+    ipcRenderer.on('pet-network-chat', (event, payload) => callback(payload));
+  },
+
+  onPetNetworkNotice: (callback) => {
+    ipcRenderer.on('pet-network-notice', (event, payload) => callback(payload));
+  },
+
+  onPetNetworkBubble: (callback) => {
+    ipcRenderer.on('pet-network-bubble', (event, payload) => callback(payload));
+  },
   
   // ========== 主题相关 API ==========
   

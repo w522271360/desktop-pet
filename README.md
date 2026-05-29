@@ -106,6 +106,30 @@ npm run build:portable
 3. 填写当前服务支持的模型 ID
 4. 点击 **测试连接** 验证配置
 
+### 联网服务
+
+桌面端默认使用 **个人版**，不会连接外部服务。需要多台桌宠互联时：
+
+1. 在公网服务器启动服务端：
+
+```bash
+npm run server -- --host 0.0.0.0 --port 17890 --admin-token your-admin-token
+```
+
+2. 打开管理页面：
+
+```text
+http://服务器IP:17890/admin
+```
+
+3. 桌面端进入 **设置** → **联机服务**，切换到 **联网版**。
+4. 填写 `ws://服务器IP:17890` 或反代后的 `wss://域名`，设置昵称，然后连接。
+5. 聊天窗口会出现 **联机** 入口，可查看在线用户并发送简单消息。
+
+如果服务端设置了 `--client-token`，桌面端也需要填写相同访问口令。公网生产环境建议使用 Nginx 或 Caddy 提供 `wss://`，不要在不可信网络中明文传输口令。
+
+服务端管理页可以查看当前在线用户，并向全部或指定桌宠下发消息；桌面端会以宠物气泡显示服务端消息。
+
 ---
 
 ## 📁 项目结构
@@ -117,6 +141,10 @@ project/
 ├── config.js            # 应用配置（模型、窗口等）
 ├── store.js             # 数据持久化
 ├── api-service.js       # AI API 调用服务
+├── pet-server.js        # 公网 WebSocket/管理页面服务端
+├── pet-network-client.js # 桌面端联网客户端
+├── pet-network-protocol.js # 联网消息协议
+├── pet-device-identity.js # 匿名设备 ID
 ├── renderer/            # 渲染进程
 │   ├── pet.html         # 桌宠窗口
 │   ├── chat.html/js/css # 对话窗口

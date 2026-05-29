@@ -51,6 +51,21 @@ const saveHistoryCheckbox = document.getElementById('save-history');
 const assistantNicknameInput = document.getElementById('assistant-nickname');
 const userDisplayNameInput = document.getElementById('user-display-name');
 
+// DOM元素 - 联网服务
+const personalModeBtn = document.getElementById('personal-mode-btn');
+const networkModeBtn = document.getElementById('network-mode-btn');
+const networkSettingsSection = document.getElementById('network-settings-section');
+const networkStatusText = document.getElementById('network-status-text');
+const networkStatusDetail = document.getElementById('network-status-detail');
+const networkOnlineCount = document.getElementById('network-online-count');
+const networkServerUrlInput = document.getElementById('network-server-url');
+const networkClientTokenInput = document.getElementById('network-client-token');
+const networkNicknameInput = document.getElementById('network-nickname');
+const networkEnabledCheckbox = document.getElementById('network-enabled');
+const networkSaveBtn = document.getElementById('network-save-btn');
+const networkConnectBtn = document.getElementById('network-connect-btn');
+const networkDisconnectBtn = document.getElementById('network-disconnect-btn');
+
 // DOM元素 - 其他
 const closeBtn = document.getElementById('close-btn');
 const modal = document.getElementById('config-modal');
@@ -98,6 +113,7 @@ async function initialize() {
   await loadConfigs();
   await loadReminders();
   await loadSettings();
+  await loadNetworkSettings();
   bindEvents();
 }
 
@@ -284,6 +300,61 @@ async function loadSettings() {
   
   // 加载对话界面设置
   await loadChatSettings();
+}
+
+function applyNetworkMode(mode) {
+  const isNetwork = mode === 'network';
+  personalModeBtn?.classList.toggle('active', !isNetwork);
+  networkModeBtn?.classList.toggle('active', isNetwork);
+  networkSettingsSection?.classList.toggle('disabled-section', !isNetwork);
+}
+
+function renderNetworkState(state = {}) {
+  const statusText = {
+    disabled: '个人版',
+    connecting: '连接中',
+    connected: '已连接',
+    reconnecting: '重连中',
+    error: '连接失败'
+  }[state.status] || '未连接';
+  if (networkStatusText) networkStatusText.textContent = statusText;
+  if (networkStatusDetail) {
+    networkStatusDetail.textContent = state.error
+      || (state.status === 'connected' ? `已连接到 ${state.serverUrl}` : '联网不可用时，本地功能仍可正常使用。');
+  }
+  if (networkOnlineCount) {
+    networkOnlineCount.textContent = `${Array.isArray(state.users) ? state.users.length : 0} 人在线`;
+  }
+}
+
+async function loadNetworkSettings() {
+  const mode = await window.electronAPI.storeGet('petAppMode') || 'personal';
+  applyNetworkMode(mode);
+  if (networkServerUrlInput) networkServerUrlInput.value = await window.electronAPI.storeGet('petServerUrl') || '';
+  if (networkClientTokenInput) networkClientTokenInput.value = await window.electronAPI.storeGet('petNetworkClientToken') || '';
+  if (networkNicknameInput) {
+    networkNicknameInput.value = await window.electronAPI.storeGet('petNetworkNickname')
+      || await window.electronAPI.storeGet('userDisplayName')
+      || '桌宠用户';
+  }
+  if (networkEnabledCheckbox) networkEnabledCheckbox.checked = await window.electronAPI.storeGet('petNetworkEnabled') === true;
+  renderNetworkState(await window.electronAPI.getPetNetworkState?.());
+}
+
+async function saveNetworkSettings({ connect = false } = {}) {
+  const mode = networkModeBtn?.classList.contains('active') ? 'network' : 'personal';
+  const state = await window.electronAPI.updatePetNetworkConfig({
+    petAppMode: mode,
+    petNetworkEnabled: networkEnabledCheckbox?.checked === true,
+    petServerUrl: networkServerUrlInput?.value.trim() || '',
+    petNetworkClientToken: networkClientTokenInput?.value.trim() || '',
+    petNetworkNickname: networkNicknameInput?.value.trim() || '桌宠用户'
+  });
+  renderNetworkState(state);
+  if (connect && mode === 'network') {
+    renderNetworkState(await window.electronAPI.connectPetNetwork());
+  }
+  showToast('✅ 联网设置已保存', 'success');
 }
 
 // 加载对话界面设置
@@ -499,6 +570,33 @@ function bindEvents() {
     await window.electronAPI.storeSet('userDisplayName', displayName);
     showToast(displayName ? `✅ 助手会称呼你为「${displayName}」` : '✅ 已恢复默认称呼「你」', 'success');
   });
+
+  personalModeBtn?.addEventListener('click', async () => {
+    applyNetworkMode('personal');
+    if (networkEnabledCheckbox) networkEnabledCheckbox.checked = false;
+    const state = await window.electronAPI.setPetNetworkMode('personal');
+    renderNetworkState(state);
+    showToast('✅ 已切换到个人版', 'success');
+  });
+
+  networkModeBtn?.addEventListener('click', async () => {
+    applyNetworkMode('network');
+    const state = await window.electronAPI.setPetNetworkMode('network');
+    renderNetworkState(state);
+    showToast('🌐 已切换到联网版，请确认服务端配置', 'success');
+  });
+
+  networkSaveBtn?.addEventListener('click', () => saveNetworkSettings());
+  networkConnectBtn?.addEventListener('click', async () => {
+    await saveNetworkSettings({ connect: true });
+  });
+  networkDisconnectBtn?.addEventListener('click', async () => {
+    const state = await window.electronAPI.disconnectPetNetwork();
+    renderNetworkState(state);
+    showToast('⏹️ 已断开联网服务', 'success');
+  });
+
+  window.electronAPI.onPetNetworkStateChanged?.(renderNetworkState);
   // 夜间模式切换
   darkModeToggle?.addEventListener('change', async () => {
     const isDarkMode = darkModeToggle.checked;

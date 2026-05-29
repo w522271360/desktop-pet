@@ -10,6 +10,7 @@ const { getImageExtension } = require('./generated-image-export');
 const { resolveConversationSavePath } = require('./conversation-save-path');
 const { createReminderManager } = require('./reminder-manager');
 const { getPortableRelaunchOptions } = require('./portable-restart');
+const { createPetNetworkClient } = require('./pet-network-client');
 
 const APP_NAME = '桌面小助手';
 
@@ -31,6 +32,10 @@ let screenshotSelectorWindow = null;
 let reminderCheckTimer = null;
 let activeReminderId = null;
 const reminderManager = createReminderManager(store);
+const petNetworkClient = createPetNetworkClient({
+  store,
+  appVersion: app.getVersion()
+});
 
 // 获取应用图标路径（支持多种格式回退）
 function getAppIcon() {
@@ -100,6 +105,42 @@ function broadcastReminderListChanged() {
     settingsWindow.webContents.send('reminders-changed');
   }
 }
+
+function sendToWindow(windowRef, channel, payload) {
+  if (windowRef && !windowRef.isDestroyed()) {
+    windowRef.webContents.send(channel, payload);
+  }
+}
+
+function broadcastPetNetwork(channel, payload) {
+  [petWindow, chatWindow, settingsWindow].forEach(win => sendToWindow(win, channel, payload));
+}
+
+function broadcastPetNetworkState() {
+  broadcastPetNetwork('pet-network-state-changed', petNetworkClient.getState());
+}
+
+function showPetNetworkBubble(payload) {
+  resizePetWindowForReminder(true);
+  sendToWindow(petWindow, 'pet-network-bubble', {
+    title: payload?.title || '联网消息',
+    text: payload?.text || '',
+    from: payload?.from || null,
+    sentAt: payload?.sentAt || new Date().toISOString()
+  });
+}
+
+petNetworkClient.on('state', broadcastPetNetworkState);
+petNetworkClient.on('users', users => {
+  broadcastPetNetwork('pet-network-users-changed', users);
+});
+petNetworkClient.on('chat', payload => {
+  broadcastPetNetwork('pet-network-chat', payload);
+});
+petNetworkClient.on('notice', payload => {
+  showPetNetworkBubble(payload);
+  broadcastPetNetwork('pet-network-notice', payload);
+});
 
 function sendActiveReminderToPet() {
   if (!petWindow || petWindow.isDestroyed()) return;
@@ -798,6 +839,74 @@ ipcMain.handle('store-delete', (event, key) => {
   return true;
 });
 
+// ========== 联网服务 IPC 处理 ==========
+
+ipcMain.handle('pet-network-get-state', () => {
+  return petNetworkClient.getState();
+});
+
+ipcMain.handle('pet-network-get-users', () => {
+  return petNetworkClient.getState().users;
+});
+
+ipcMain.handle('pet-network-connect', async () => {
+  const state = await petNetworkClient.connect();
+  broadcastPetNetworkState();
+  return state;
+});
+
+ipcMain.handle('pet-network-disconnect', () => {
+  const state = petNetworkClient.disconnect();
+  broadcastPetNetworkState();
+  return state;
+});
+
+ipcMain.handle('pet-network-set-mode', async (event, { mode }) => {
+  const nextMode = mode === 'network' ? 'network' : 'personal';
+  store.set('petAppMode', nextMode);
+  if (nextMode === 'personal') {
+    petNetworkClient.disconnect();
+  } else if (store.get('petNetworkEnabled', false)) {
+    await petNetworkClient.connect();
+  }
+  broadcastPetNetworkState();
+  return petNetworkClient.getState();
+});
+
+ipcMain.handle('pet-network-update-config', async (event, { config: networkConfig }) => {
+  const allowedKeys = [
+    'petAppMode',
+    'petNetworkEnabled',
+    'petServerUrl',
+    'petNetworkClientToken',
+    'petNetworkNickname'
+  ];
+  allowedKeys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(networkConfig || {}, key)) {
+      store.set(key, networkConfig[key]);
+    }
+  });
+
+  if (store.get('petAppMode', 'personal') === 'network' && store.get('petNetworkEnabled', false)) {
+    await petNetworkClient.connect();
+  } else {
+    petNetworkClient.disconnect();
+  }
+
+  broadcastPetNetworkState();
+  return petNetworkClient.getState();
+});
+
+ipcMain.handle('pet-network-send-chat', (event, payload) => {
+  return petNetworkClient.sendChat(payload);
+});
+
+ipcMain.on('pet-network-bubble-closed', () => {
+  if (!activeReminderId) {
+    resizePetWindowForReminder(false);
+  }
+});
+
 // ========== 主题相关 IPC 处理 ==========
 
 // 广播主题变化到所有窗口
@@ -1031,6 +1140,12 @@ app.whenReady().then(async () => {
   }
   
   createPetWindow();
+
+  if (store.get('petAppMode', 'personal') === 'network' && store.get('petNetworkEnabled', false)) {
+    petNetworkClient.connect().catch(error => {
+      console.warn('联网服务自动连接失败:', error.message);
+    });
+  }
 
   // 自动打开对话窗口（如果已启用）
   const autoOpenChat = store.get('autoOpenChat', false);

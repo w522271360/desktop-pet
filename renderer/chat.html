@@ -23,6 +23,10 @@
           <span class="toolbar-action-icon">＋</span>
           <span>新对话</span>
         </button>
+        <button id="network-chat-toggle-btn" class="toolbar-action-btn hidden" type="button" title="联网聊天">
+          <span class="toolbar-action-icon">🌐</span>
+          <span>联机</span>
+        </button>
         <button id="history-toggle-btn" class="toolbar-icon-btn" title="对话记录">☰</button>
         <button id="settings-btn" class="toolbar-icon-btn" title="设置">⚙️</button>
       </div>
@@ -37,6 +41,24 @@
       <button id="new-conversation-btn" class="new-conversation-btn" type="button">新对话</button>
       <div id="history-list" class="history-list"></div>
       <div id="history-empty" class="history-empty">暂无历史对话</div>
+    </aside>
+
+    <!-- 联网聊天侧栏 -->
+    <aside id="network-chat-panel" class="network-chat-panel collapsed" aria-label="联网聊天">
+      <div class="network-chat-header">
+        <h2>联网聊天</h2>
+        <button id="network-chat-close-btn" class="history-icon-btn" title="收起">‹</button>
+      </div>
+      <div id="network-chat-status" class="network-chat-status">未连接</div>
+      <select id="network-chat-target" class="network-chat-target">
+        <option value="">所有在线用户</option>
+      </select>
+      <div id="network-chat-users" class="network-chat-users"></div>
+      <div id="network-chat-messages" class="network-chat-messages"></div>
+      <div class="network-chat-compose">
+        <textarea id="network-chat-input" maxlength="1000" placeholder="给其他桌宠发消息"></textarea>
+        <button id="network-chat-send-btn" type="button">发送</button>
+      </div>
     </aside>
 
     <!-- 对话历史区域 -->

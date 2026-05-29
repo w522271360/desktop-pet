@@ -25,6 +25,10 @@
           <span class="nav-icon">⚙️</span>
           <span class="nav-text">通用设置</span>
         </button>
+        <button class="nav-item" data-tab="network">
+          <span class="nav-icon">🌐</span>
+          <span class="nav-text">联机服务</span>
+        </button>
         <button class="nav-item" data-tab="appearance">
           <span class="nav-icon">🎨</span>
           <span class="nav-text">外观设置</span>
@@ -127,6 +131,79 @@
             </div>
           </div>
 
+        </div>
+      </div>
+
+      <!-- 联机服务页面 -->
+      <div id="network-tab" class="tab-content">
+        <div class="tab-header">
+          <h1>联机服务</h1>
+          <p class="tab-description">选择个人版或联网版。联网不可用时不会影响本地对话、提醒和设置。</p>
+        </div>
+
+        <div class="tab-body">
+          <div class="settings-section">
+            <h3>使用模式</h3>
+            <div class="mode-segment" role="group" aria-label="使用模式">
+              <button id="personal-mode-btn" class="mode-btn active" type="button">个人版</button>
+              <button id="network-mode-btn" class="mode-btn" type="button">联网版</button>
+            </div>
+          </div>
+
+          <div class="settings-section" id="network-settings-section">
+            <h3>服务连接</h3>
+            <div class="network-status-card" id="network-status-card">
+              <div>
+                <strong id="network-status-text">未连接</strong>
+                <p id="network-status-detail">个人版不会连接联网服务。</p>
+              </div>
+              <span id="network-online-count">0 人在线</span>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>服务端地址</label>
+                <p class="setting-desc">例如 ws://公网IP:17890 或 wss://你的域名</p>
+              </div>
+              <input type="text" id="network-server-url" class="setting-input text-input" placeholder="wss://pet.example.com">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>访问口令</label>
+                <p class="setting-desc">服务端配置 client-token 时填写；未配置可留空</p>
+              </div>
+              <input type="password" id="network-client-token" class="setting-input text-input" placeholder="可选">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>联网昵称</label>
+                <p class="setting-desc">显示在在线列表、聊天页面和管理页面</p>
+              </div>
+              <input type="text" id="network-nickname" class="setting-input text-input" maxlength="24" placeholder="桌宠用户">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>自动连接</label>
+                <p class="setting-desc">开启联网版后自动连接服务端</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="network-enabled">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="action-bar">
+              <button id="network-save-btn" class="primary-btn" type="button">
+                <span>💾</span>
+                <span>保存并应用</span>
+              </button>
+              <button id="network-connect-btn" class="secondary-btn" type="button">连接</button>
+              <button id="network-disconnect-btn" class="secondary-btn" type="button">断开</button>
+            </div>
+          </div>
         </div>
       </div>
 

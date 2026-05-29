@@ -32,6 +32,10 @@ test('packages main-process helpers required at app startup', () => {
   assert.ok(packageJson.build.files.includes('image-generation-log.js'));
   assert.ok(packageJson.build.files.includes('reminder-manager.js'));
   assert.ok(packageJson.build.files.includes('portable-restart.js'));
+  assert.ok(packageJson.build.files.includes('pet-device-identity.js'));
+  assert.ok(packageJson.build.files.includes('pet-network-client.js'));
+  assert.ok(packageJson.build.files.includes('pet-network-protocol.js'));
+  assert.ok(packageJson.build.files.includes('pet-server.js'));
   assert.ok(
     packageJson.build.files.includes('config/prompt-templates.json'),
     'prompt templates must be included in packaged desktop builds'

@@ -20,6 +20,12 @@ const defaults = {
   themeColor: 'shiba',
   assistantNickname: '小秘书',
   userDisplayName: '',
+  petAppMode: 'personal',
+  petNetworkEnabled: false,
+  petServerUrl: '',
+  petNetworkClientToken: '',
+  petNetworkClientId: '',
+  petNetworkNickname: '',
   reminders: [],
   apiConfigs: [],
   activeConfigId: null

@@ -5,6 +5,7 @@ const sendBtn = document.getElementById('send-btn');
 const screenshotBtn = document.getElementById('screenshot-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const quickNewConversationBtn = document.getElementById('quick-new-conversation-btn');
+const networkChatToggleBtn = document.getElementById('network-chat-toggle-btn');
 const historyToggleBtn = document.getElementById('history-toggle-btn');
 const historyCloseBtn = document.getElementById('history-close-btn');
 const historySidebar = document.getElementById('history-sidebar');
@@ -18,6 +19,14 @@ const stopBtn = document.getElementById('stop-btn');
 const imageAttachmentPreview = document.getElementById('image-attachment-preview');
 const imageAttachmentThumbnail = document.getElementById('image-attachment-thumbnail');
 const removeImageAttachmentBtn = document.getElementById('remove-image-attachment');
+const networkChatPanel = document.getElementById('network-chat-panel');
+const networkChatCloseBtn = document.getElementById('network-chat-close-btn');
+const networkChatStatus = document.getElementById('network-chat-status');
+const networkChatTarget = document.getElementById('network-chat-target');
+const networkChatUsers = document.getElementById('network-chat-users');
+const networkChatMessages = document.getElementById('network-chat-messages');
+const networkChatInput = document.getElementById('network-chat-input');
+const networkChatSendBtn = document.getElementById('network-chat-send-btn');
 
 // 编辑模态框相关
 const editModal = document.getElementById('edit-modal');
@@ -45,6 +54,7 @@ let appConfig = null;
 let pendingImageAttachment = null;
 let assistantNickname = '小秘书';
 let userDisplayName = '';
+let petNetworkState = { status: 'disabled', users: [] };
 
 // 生成控制
 let isGenerating = false;
@@ -85,6 +95,7 @@ async function initializeApp() {
   
   startNewConversation({ silent: true });
   await loadConversationRecords();
+  await initializeNetworkChat();
 
   // 监听滚动事件
   messagesContainer.addEventListener('scroll', handleScroll);
@@ -425,6 +436,80 @@ async function deleteConversation(record) {
 async function loadPersonalizationSettings() {
   assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
   userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '';
+}
+
+function renderNetworkChatState(state = petNetworkState) {
+  petNetworkState = {
+    ...petNetworkState,
+    ...state,
+    users: Array.isArray(state.users) ? state.users : petNetworkState.users || []
+  };
+  const isNetworkMode = petNetworkState.mode === 'network';
+  networkChatToggleBtn?.classList.toggle('hidden', !isNetworkMode);
+  if (networkChatStatus) {
+    const statusLabel = {
+      disabled: '个人版',
+      connecting: '连接中',
+      connected: '已连接',
+      reconnecting: '重连中',
+      error: '连接失败'
+    }[petNetworkState.status] || '未连接';
+    networkChatStatus.textContent = petNetworkState.error
+      ? `${statusLabel}：${petNetworkState.error}`
+      : `${statusLabel} · ${(petNetworkState.users || []).length} 人在线`;
+  }
+  renderNetworkUsers(petNetworkState.users || []);
+}
+
+function renderNetworkUsers(users) {
+  if (!networkChatUsers || !networkChatTarget) return;
+  networkChatUsers.innerHTML = '';
+  networkChatTarget.innerHTML = '<option value="">所有在线用户</option>';
+  users.forEach(user => {
+    const chip = document.createElement('span');
+    chip.className = 'network-user-chip';
+    chip.textContent = user.nickname || user.shortId || '桌宠用户';
+    networkChatUsers.appendChild(chip);
+
+    if (user.clientId !== petNetworkState.clientId) {
+      const option = document.createElement('option');
+      option.value = user.clientId;
+      option.textContent = user.nickname || user.shortId || user.clientId;
+      networkChatTarget.appendChild(option);
+    }
+  });
+}
+
+function appendNetworkMessage(payload, type = 'chat') {
+  if (!networkChatMessages) return;
+  const item = document.createElement('div');
+  item.className = `network-chat-message ${type === 'system' ? 'system' : ''}`;
+  const sender = payload.from?.nickname || (type === 'system' ? '系统' : '我');
+  item.textContent = `${sender}：${payload.text || ''}`;
+  networkChatMessages.appendChild(item);
+  networkChatMessages.scrollTop = networkChatMessages.scrollHeight;
+}
+
+async function sendNetworkChat() {
+  const text = networkChatInput?.value.trim();
+  if (!text) return;
+  const targetClientId = networkChatTarget?.value || null;
+  const result = await window.electronAPI.sendPetNetworkChat({ text, targetClientId });
+  if (!result.success) {
+    showStatus(result.error || '联网消息发送失败', 'warning');
+    return;
+  }
+  appendNetworkMessage({ text, from: { nickname: petNetworkState.nickname || '我' } });
+  networkChatInput.value = '';
+}
+
+async function initializeNetworkChat() {
+  if (!window.electronAPI.getPetNetworkState) return;
+  renderNetworkChatState(await window.electronAPI.getPetNetworkState());
+  window.electronAPI.onPetNetworkStateChanged?.(renderNetworkChatState);
+  window.electronAPI.onPetNetworkUsersChanged?.(users => renderNetworkChatState({ users }));
+  window.electronAPI.onPetNetworkChat?.(payload => appendNetworkMessage(payload));
+  window.electronAPI.onPetNetworkNotice?.(payload => appendNetworkMessage(payload, 'system'));
 }
 
 // 加载主题
@@ -1417,6 +1502,19 @@ historyCloseBtn.addEventListener('click', () => {
 });
 newConversationBtn.addEventListener('click', () => startNewConversation());
 quickNewConversationBtn.addEventListener('click', () => startNewConversation());
+networkChatToggleBtn?.addEventListener('click', () => {
+  networkChatPanel?.classList.toggle('collapsed');
+});
+networkChatCloseBtn?.addEventListener('click', () => {
+  networkChatPanel?.classList.add('collapsed');
+});
+networkChatSendBtn?.addEventListener('click', sendNetworkChat);
+networkChatInput?.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendNetworkChat();
+  }
+});
 document.addEventListener('click', handleDocumentClick);
 
 configSelect.addEventListener('change', async () => {

@@ -355,6 +355,8 @@
       acknowledgeReminder: async () => ({ success: true }),
       onReminderDue: () => {},
       onReminderCleared: () => {},
+      onPetNetworkBubble: () => {},
+      closePetNetworkBubble: () => {},
       onPetImageUpdated: () => {},
       onPetCharacterUpdated: () => {},
       onPetSizeUpdated: () => {}
@@ -406,6 +408,7 @@
     let suppressNextClick = false;
     let isPetHovered = false;
     let activeReminder = null;
+    let activeNetworkBubble = null;
 
     function applyPetCharacter(character) {
       const petCharacter = petCharacters[character] || petCharacters.bubu;
@@ -450,6 +453,7 @@
 
     function hideReminderBubble() {
       activeReminder = null;
+      activeNetworkBubble = null;
       reminderBubble.classList.remove('show', 'attention');
       reminderTitle.textContent = '';
       reminderNote.textContent = '';
@@ -457,6 +461,20 @@
       reminderTime.textContent = '';
       reminderQueue.textContent = '';
       setPetState('idle');
+    }
+
+    function showNetworkBubble(payload) {
+      if (!payload?.text) return;
+      activeNetworkBubble = payload;
+      activeReminder = null;
+      reminderTitle.textContent = payload.title || '联网消息';
+      reminderNote.textContent = payload.text;
+      reminderNote.classList.add('show');
+      reminderTime.textContent = payload.from?.nickname ? `来自 ${payload.from.nickname}` : '服务端消息';
+      reminderQueue.textContent = payload.sentAt ? new Date(payload.sentAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+      reminderBubble.classList.add('show');
+      playMomentaryState('waiting', 900);
+      logInteraction('show-network-bubble', { source: payload.from?.clientId || 'server' });
     }
 
     function logInteraction(type, details = {}) {
@@ -689,6 +707,14 @@
       }
     });
 
+    reminderAck.addEventListener('click', (event) => {
+      if (!activeNetworkBubble || activeReminder) return;
+      event.preventDefault();
+      event.stopPropagation();
+      hideReminderBubble();
+      petAPI.closePetNetworkBubble();
+    });
+
     document.addEventListener('dragstart', (event) => {
       event.preventDefault();
     });
@@ -728,6 +754,7 @@
 
     petAPI.onReminderDue(showReminderBubble);
     petAPI.onReminderCleared(hideReminderBubble);
+    petAPI.onPetNetworkBubble(showNetworkBubble);
 
     async function loadSavedPetSize() {
       const size = await petAPI.storeGet('petSize') || 'medium';

@@ -1407,3 +1407,124 @@ body.dark-mode .template-quick-btn:hover {
   border-color: var(--primary);
   background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.25) 100%);
 }
+
+.network-chat-panel {
+  position: fixed;
+  top: 54px;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-left: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: -12px 0 30px rgba(15, 23, 42, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.network-chat-panel.collapsed {
+  transform: translateX(100%);
+}
+
+.network-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.network-chat-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.network-chat-status {
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.network-chat-target {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px;
+}
+
+.network-chat-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.network-user-chip {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+}
+
+.network-chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.network-chat-message {
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.network-chat-message.system {
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.network-chat-compose {
+  display: flex;
+  gap: 8px;
+}
+
+.network-chat-compose textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 96px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.network-chat-compose button {
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  color: #fff;
+  background: #2563eb;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+body.dark-mode .network-chat-panel {
+  border-left-color: #2D3A5A;
+  background: rgba(30, 30, 50, 0.98);
+}
+
+body.dark-mode .network-chat-message,
+body.dark-mode .network-user-chip {
+  background: #252540;
+  color: #E4E4E7;
+}
