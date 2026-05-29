@@ -581,13 +581,24 @@ function bindEvents() {
 
   networkModeBtn?.addEventListener('click', async () => {
     applyNetworkMode('network');
-    const state = await window.electronAPI.setPetNetworkMode('network');
+    if (networkEnabledCheckbox) networkEnabledCheckbox.checked = true;
+    const state = networkServerUrlInput?.value.trim()
+      ? await window.electronAPI.updatePetNetworkConfig({
+          petAppMode: 'network',
+          petNetworkEnabled: true,
+          petServerUrl: networkServerUrlInput.value.trim(),
+          petNetworkClientToken: networkClientTokenInput?.value.trim() || '',
+          petNetworkNickname: networkNicknameInput?.value.trim() || '桌宠用户'
+        })
+      : await window.electronAPI.setPetNetworkMode('network');
     renderNetworkState(state);
-    showToast('🌐 已切换到联网版，请确认服务端配置', 'success');
+    showToast(networkServerUrlInput?.value.trim() ? '🌐 已切换到联网版并开始连接' : '🌐 已切换到联网版，请填写服务端地址', 'success');
   });
 
   networkSaveBtn?.addEventListener('click', () => saveNetworkSettings());
   networkConnectBtn?.addEventListener('click', async () => {
+    applyNetworkMode('network');
+    if (networkEnabledCheckbox) networkEnabledCheckbox.checked = true;
     await saveNetworkSettings({ connect: true });
   });
   networkDisconnectBtn?.addEventListener('click', async () => {

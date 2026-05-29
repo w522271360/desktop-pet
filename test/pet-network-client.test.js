@@ -1,7 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createPetNetworkClient } = require('../pet-network-client');
+const { createPetNetworkClient, normalizeWsUrl } = require('../pet-network-client');
+
+test('normalizes server origins to the pet websocket endpoint', () => {
+  assert.equal(normalizeWsUrl('ws://127.0.0.1:17890'), 'ws://127.0.0.1:17890/ws');
+  assert.equal(normalizeWsUrl('http://example.com'), 'ws://example.com/ws');
+  assert.equal(normalizeWsUrl('wss://example.com/custom'), 'wss://example.com/custom');
+});
 
 test('stays disabled in personal mode and does not open a websocket', async () => {
   let opened = false;

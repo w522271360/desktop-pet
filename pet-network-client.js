@@ -11,9 +11,19 @@ const {
 function normalizeWsUrl(url) {
   const value = String(url || '').trim();
   if (!value) return '';
-  if (value.startsWith('http://')) return value.replace(/^http:\/\//, 'ws://');
-  if (value.startsWith('https://')) return value.replace(/^https:\/\//, 'wss://');
-  return value;
+  const wsUrl = value
+    .replace(/^http:\/\//, 'ws://')
+    .replace(/^https:\/\//, 'wss://');
+  try {
+    const parsed = new URL(wsUrl);
+    if ((parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && (parsed.pathname === '' || parsed.pathname === '/')) {
+      parsed.pathname = '/ws';
+      return parsed.toString();
+    }
+  } catch (error) {
+    return wsUrl;
+  }
+  return wsUrl;
 }
 
 function createDefaultState(overrides = {}) {
