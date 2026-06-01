@@ -1,0 +1,12 @@
+{
+  "name": "desktop-pet-server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "pet-server.js",
+  "scripts": {
+    "start": "node pet-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
