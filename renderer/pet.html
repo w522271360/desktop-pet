@@ -130,12 +130,32 @@
       animation: bubbleNudge 0.34s ease;
     }
 
+    #reminder-bubble.network-bubble {
+      width: min(220px, calc(100vw - var(--pet-size) - 30px));
+      padding: 13px 14px 12px;
+      border-color: rgba(15, 118, 110, 0.2);
+      border-radius: 16px;
+      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+    }
+
+    #reminder-bubble.network-bubble::after {
+      border-color: rgba(15, 118, 110, 0.18);
+    }
+
     .reminder-title {
       margin-bottom: 6px;
       font-size: 15px;
       font-weight: 700;
       line-height: 1.35;
       word-break: break-word;
+    }
+
+    #reminder-bubble.network-bubble .reminder-title {
+      margin-bottom: 9px;
+      font-size: 16px;
+      line-height: 1.45;
+      font-weight: 750;
+      color: #24302f;
     }
 
     .reminder-note {
@@ -157,6 +177,15 @@
       font-size: 12px;
       line-height: 1.35;
       color: #8a6a3a;
+    }
+
+    #reminder-bubble.network-bubble .reminder-time {
+      font-size: 12px;
+      color: #6b7b78;
+    }
+
+    #reminder-bubble.network-bubble .reminder-queue {
+      display: none;
     }
 
     .reminder-queue {
@@ -441,6 +470,7 @@
       const reminder = payload?.reminder;
       if (!reminder) return;
       activeReminder = reminder;
+      reminderBubble.classList.remove('network-bubble');
       reminderTitle.textContent = reminder.title;
       reminderNote.textContent = reminder.note || '';
       reminderNote.classList.toggle('show', Boolean(reminder.note));
@@ -454,7 +484,7 @@
     function hideReminderBubble() {
       activeReminder = null;
       activeNetworkBubble = null;
-      reminderBubble.classList.remove('show', 'attention');
+      reminderBubble.classList.remove('show', 'attention', 'network-bubble');
       reminderTitle.textContent = '';
       reminderNote.textContent = '';
       reminderNote.classList.remove('show');
@@ -467,11 +497,13 @@
       if (!payload?.text) return;
       activeNetworkBubble = payload;
       activeReminder = null;
-      reminderTitle.textContent = payload.title || '联网消息';
-      reminderNote.textContent = payload.text;
-      reminderNote.classList.add('show');
-      reminderTime.textContent = payload.from?.nickname ? `来自 ${payload.from.nickname}` : '服务端消息';
-      reminderQueue.textContent = payload.sentAt ? new Date(payload.sentAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+      const source = payload.from?.nickname || '服务端';
+      reminderBubble.classList.add('network-bubble');
+      reminderTitle.textContent = payload.text;
+      reminderNote.textContent = '';
+      reminderNote.classList.remove('show');
+      reminderTime.textContent = `-- 来自 ${source}`;
+      reminderQueue.textContent = '';
       reminderBubble.classList.add('show');
       playMomentaryState('waiting', 900);
       logInteraction('show-network-bubble', { source: payload.from?.clientId || 'server' });

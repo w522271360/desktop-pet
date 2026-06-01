@@ -4,6 +4,7 @@ let apiConfigs = [];
 let editingConfigId = null;
 let reminders = [];
 let editingReminderId = null;
+let eventsBound = false;
 
 // DOM元素 - 导航
 const navItems = document.querySelectorAll('.nav-item');
@@ -32,6 +33,7 @@ const saveReminderBtn = document.getElementById('save-reminder-btn');
 
 // DOM元素 - 通用设置
 const alwaysOnTopCheckbox = document.getElementById('always-on-top');
+const launchAtLoginCheckbox = document.getElementById('launch-at-login');
 
 // DOM元素 - 外观设置
 const darkModeToggle = document.getElementById('dark-mode-toggle');
@@ -109,12 +111,32 @@ navItems.forEach(item => {
 
 // 初始化
 async function initialize() {
-  appConfig = await window.electronAPI.getConfig();
-  await loadConfigs();
-  await loadReminders();
-  await loadSettings();
-  await loadNetworkSettings();
+  try {
+    appConfig = await window.electronAPI.getConfig();
+    await loadConfigs();
+  } catch (error) {
+    showToast(`❌ API 配置加载失败：${error.message}`, 'error');
+  }
+
   bindEvents();
+
+  try {
+    await loadReminders();
+  } catch (error) {
+    showToast(`❌ 提醒事项加载失败：${error.message}`, 'error');
+  }
+
+  try {
+    await loadSettings();
+  } catch (error) {
+    showToast(`❌ 通用设置加载失败：${error.message}`, 'error');
+  }
+
+  try {
+    await loadNetworkSettings();
+  } catch (error) {
+    showToast(`❌ 联机设置加载失败：${error.message}`, 'error');
+  }
 }
 
 // 加载所有配置
@@ -282,8 +304,19 @@ function escapeHtml(value) {
 
 // 加载其他设置
 async function loadSettings() {
-  const alwaysOnTop = await window.electronAPI.storeGet('alwaysOnTop') || false;
+  const alwaysOnTop = (await window.electronAPI.storeGet('alwaysOnTop')) ?? true;
   alwaysOnTopCheckbox.checked = alwaysOnTop;
+
+  if (launchAtLoginCheckbox && window.electronAPI.getLaunchAtLogin) {
+    try {
+      const launchAtLogin = await window.electronAPI.getLaunchAtLogin();
+      launchAtLoginCheckbox.checked = launchAtLogin.enabled === true;
+      launchAtLoginCheckbox.disabled = launchAtLogin.supported === false;
+    } catch (error) {
+      launchAtLoginCheckbox.disabled = true;
+      console.warn('Failed to load launch-at-login setting:', error.message);
+    }
+  }
   
   // 加载主题设置
   const darkMode = await window.electronAPI.storeGet('darkMode') || false;
@@ -389,7 +422,7 @@ async function loadChatSettings() {
     assistantNicknameInput.value = assistantNickname;
   }
 
-  const userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '';
+  const userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '主人';
   if (userDisplayNameInput) {
     userDisplayNameInput.value = userDisplayName;
   }
@@ -441,8 +474,11 @@ function applyChatTheme(theme) {
 
 // 绑定事件
 function bindEvents() {
+  if (eventsBound) return;
+  eventsBound = true;
+
   // 添加配置
-  addConfigBtn.addEventListener('click', () => {
+  addConfigBtn?.addEventListener('click', () => {
     openModal();
   });
 
@@ -491,14 +527,25 @@ function bindEvents() {
   });
   
   // 关闭按钮
-  closeBtn.addEventListener('click', () => {
+  closeBtn?.addEventListener('click', () => {
     window.close();
   });
   
   // 置顶设置
-  alwaysOnTopCheckbox.addEventListener('change', async () => {
+  alwaysOnTopCheckbox?.addEventListener('change', async () => {
     await window.electronAPI.storeSet('alwaysOnTop', alwaysOnTopCheckbox.checked);
     showToast('✅ 设置已保存！生效啦~ ⚙️', 'success');
+  });
+
+  launchAtLoginCheckbox?.addEventListener('change', async () => {
+    const result = await window.electronAPI.setLaunchAtLogin(launchAtLoginCheckbox.checked);
+    launchAtLoginCheckbox.checked = result.enabled === true;
+    launchAtLoginCheckbox.disabled = result.supported === false;
+    if (result.success) {
+      showToast(result.enabled ? '✅ 已开启开机自动启动' : '⏹️ 已关闭开机自动启动', 'success');
+    } else {
+      showToast(`❌ 开机自启设置失败：${result.error || '系统不支持'}`, 'error');
+    }
   });
   
   // 宠物形象切换
@@ -530,7 +577,7 @@ function bindEvents() {
     // 通知聊天窗口更新主题
     window.electronAPI.updateChatTheme(theme);
     
-    const themeNames = { shiba: '柴犬橙', blue: '天空蓝', purple: '优雅紫', green: '清新绿' };
+    const themeNames = { shiba: '松石青', blue: '天空蓝', purple: '优雅紫', green: '清新绿' };
     showToast(`🎨 主题已切换为${themeNames[theme]}！`, 'success');
   });
   
@@ -565,7 +612,7 @@ function bindEvents() {
   });
 
   userDisplayNameInput?.addEventListener('change', async () => {
-    const displayName = userDisplayNameInput.value.trim();
+    const displayName = userDisplayNameInput.value.trim() || '主人';
     userDisplayNameInput.value = displayName;
     await window.electronAPI.storeSet('userDisplayName', displayName);
     showToast(displayName ? `✅ 助手会称呼你为「${displayName}」` : '✅ 已恢复默认称呼「你」', 'success');
@@ -640,7 +687,7 @@ function bindEvents() {
   });
   
   // 模态框
-  closeModalBtn.addEventListener('click', closeModal);
+  closeModalBtn?.addEventListener('click', closeModal);
   document.querySelector('.modal-overlay')?.addEventListener('click', closeModal);
   
   // 密码显示切换
@@ -656,19 +703,19 @@ function bindEvents() {
   });
   
   // 提供商类型变化
-  providerTypeSelect.addEventListener('change', onProviderTypeChange);
+  providerTypeSelect?.addEventListener('change', onProviderTypeChange);
   
   // 模型选择变化
-  modelSelect.addEventListener('change', onModelChange);
+  modelSelect?.addEventListener('change', onModelChange);
   
   // 测试配置
-  testConfigBtn.addEventListener('click', testCurrentConfig);
+  testConfigBtn?.addEventListener('click', testCurrentConfig);
   
   // 保存配置
-  saveConfigBtn.addEventListener('click', saveCurrentConfig);
+  saveConfigBtn?.addEventListener('click', saveCurrentConfig);
   
   // 卡片操作（事件委托）
-  configsContainer.addEventListener('click', async (e) => {
+  configsContainer?.addEventListener('click', async (e) => {
     const target = e.target;
     const configId = target.dataset.id;
     
@@ -965,10 +1012,11 @@ async function deleteConfig(id) {
 function showToast(message, type = 'info') {
   toast.textContent = message;
   toast.className = `toast ${type}`;
+  const duration = type === 'error' ? 3000 : 1500;
   
   setTimeout(() => {
     toast.classList.add('hidden');
-  }, 3000);
+  }, duration);
 }
 
 // 初始化应用

@@ -184,6 +184,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeDelete: async (key) => {
     return await ipcRenderer.invoke('store-delete', key);
   },
+
+  getLaunchAtLogin: async () => {
+    return await ipcRenderer.invoke('launch-at-login-get');
+  },
+
+  setLaunchAtLogin: async (enabled) => {
+    return await ipcRenderer.invoke('launch-at-login-set', { enabled });
+  },
   
   // ========== 宠物相关 API ==========
   

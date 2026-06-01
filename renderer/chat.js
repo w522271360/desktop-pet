@@ -53,7 +53,7 @@ let apiConfigs = [];
 let appConfig = null;
 let pendingImageAttachment = null;
 let assistantNickname = '小秘书';
-let userDisplayName = '';
+let userDisplayName = '主人';
 let petNetworkState = { status: 'disabled', users: [] };
 
 // 生成控制
@@ -435,7 +435,7 @@ async function deleteConversation(record) {
 
 async function loadPersonalizationSettings() {
   assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
-  userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '';
+  userDisplayName = await window.electronAPI.storeGet('userDisplayName') || '主人';
 }
 
 function renderNetworkChatState(state = petNetworkState) {
@@ -446,6 +446,11 @@ function renderNetworkChatState(state = petNetworkState) {
   };
   const isNetworkMode = petNetworkState.mode === 'network';
   networkChatToggleBtn?.classList.toggle('hidden', !isNetworkMode);
+  if (!isNetworkMode) {
+    networkChatPanel?.classList.add('collapsed');
+    if (networkChatMessages) networkChatMessages.innerHTML = '';
+    if (networkChatInput) networkChatInput.value = '';
+  }
   if (networkChatStatus) {
     const statusLabel = {
       disabled: '个人版',
@@ -722,8 +727,10 @@ async function loadConfigs() {
   
   if (enabledConfigs.length === 0) {
     configSelect.innerHTML = '<option value="">还没有配置呢~</option>';
-    configInfo.textContent = '等待配置 🔧';
-    configInfo.className = 'config-badge';
+    if (configInfo) {
+      configInfo.textContent = '';
+      configInfo.className = 'config-badge hidden';
+    }
     updateScreenshotButton(false);
     return;
   }
@@ -796,17 +803,19 @@ async function updateConfigInfo() {
   const config = apiConfigs.find(c => c.id === selectedId);
   
   if (!config) {
-    configInfo.textContent = '等待配置 🔧';
-    configInfo.className = 'config-badge';
+    if (configInfo) {
+      configInfo.textContent = '';
+      configInfo.className = 'config-badge hidden';
+    }
     updateScreenshotButton(false);
     return;
   }
   
-  const modelLabel = formatModelLabel(config.selectedModel);
   const supportsVision = checkCurrentVisionSupport();
-  
-  configInfo.textContent = modelLabel;
-  configInfo.className = config.apiKey ? 'config-badge success' : 'config-badge';
+  if (configInfo) {
+    configInfo.textContent = '';
+    configInfo.className = 'config-badge hidden';
+  }
   
   updateScreenshotButton(supportsVision);
 }
@@ -862,7 +871,7 @@ function getImageSource(image) {
 
 function buildPersonalizedMessages(messages) {
   const nickname = assistantNickname || '小秘书';
-  const userName = userDisplayName || '你';
+  const userName = userDisplayName || '主人';
   const personalizationPrompt = `你在本应用中的助手昵称是「${nickname}」。请用中文回复。称呼用户时，使用「${userName}」。`;
 
   if (messages.length > 0 && messages[0].role === 'system') {
@@ -880,7 +889,7 @@ function buildPersonalizedMessages(messages) {
 
 function buildPersonalizedPrompt(prompt) {
   const nickname = assistantNickname || '小秘书';
-  const userName = userDisplayName || '你';
+  const userName = userDisplayName || '主人';
   return `你在本应用中的助手昵称是「${nickname}」。请用中文回复。称呼用户时，使用「${userName}」。\n\n${prompt}`;
 }
 
@@ -1039,7 +1048,8 @@ function hideLoading() {
 function showStatus(message, type = 'success') {
   statusDiv.textContent = message;
   statusDiv.className = type;
-  setTimeout(() => statusDiv.classList.add('hidden'), 3000);
+  const duration = type === 'error' ? 3000 : 1500;
+  setTimeout(() => statusDiv.classList.add('hidden'), duration);
 }
 
 // 发送消息

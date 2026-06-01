@@ -37,6 +37,10 @@ test('packages main-process helpers required at app startup', () => {
   assert.ok(packageJson.build.files.includes('pet-network-protocol.js'));
   assert.ok(packageJson.build.files.includes('pet-server.js'));
   assert.ok(
+    packageJson.build.files.includes('preload.js'),
+    'preload bridge must be included so packaged settings can control launch-at-login'
+  );
+  assert.ok(
     packageJson.build.files.includes('config/prompt-templates.json'),
     'prompt templates must be included in packaged desktop builds'
   );

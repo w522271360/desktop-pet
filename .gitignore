@@ -37,6 +37,7 @@ secrets.js
 *.tmp
 *.temp
 .cache/
+.playwright-mcp/
 .omx/
 tmp/
 temp/

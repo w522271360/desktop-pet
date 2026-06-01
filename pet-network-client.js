@@ -139,17 +139,21 @@ class PetNetworkClient extends EventEmitter {
         };
 
         socket.onmessage = event => {
+          if (socket !== this.socket) return;
           this.handleMessage(event.data);
           settle(this.getState());
         };
 
         socket.onerror = error => {
+          if (socket !== this.socket) return;
           const message = error?.message || '联网服务连接失败';
           const state = this.setState({ status: 'error', connected: false, error: message });
           settle(state);
         };
 
         socket.onclose = () => {
+          if (socket !== this.socket) return;
+          this.socket = null;
           if (this.manualDisconnect) {
             this.setState({ status: 'disabled', connected: false });
             return;
@@ -187,7 +191,13 @@ class PetNetworkClient extends EventEmitter {
     this.manualDisconnect = true;
     clearTimeout(this.reconnectTimer);
     this.closeSocket();
-    return this.setState({ status: 'disabled', connected: false, error: '' });
+    return this.setState({
+      mode: this.readConfig().mode,
+      status: 'disabled',
+      connected: false,
+      error: '',
+      users: []
+    });
   }
 
   scheduleReconnect() {

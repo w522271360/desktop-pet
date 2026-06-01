@@ -31,11 +31,72 @@ let settingsWindow = null;
 let screenshotSelectorWindow = null;
 let reminderCheckTimer = null;
 let activeReminderId = null;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const windowToFocus = chatWindow || settingsWindow || petWindow;
+    if (!windowToFocus || windowToFocus.isDestroyed()) return;
+    if (windowToFocus.isMinimized()) windowToFocus.restore();
+    windowToFocus.show();
+    windowToFocus.focus();
+  });
+}
+
 const reminderManager = createReminderManager(store);
 const petNetworkClient = createPetNetworkClient({
   store,
   appVersion: app.getVersion()
 });
+
+function getLaunchAtLoginOptions(enabled) {
+  const options = {
+    openAtLogin: Boolean(enabled),
+    openAsHidden: true
+  };
+
+  if (!app.isPackaged) {
+    options.path = process.execPath;
+    options.args = [app.getAppPath()];
+  }
+
+  return options;
+}
+
+function readLaunchAtLoginState() {
+  try {
+    return {
+      supported: true,
+      enabled: app.getLoginItemSettings(getLaunchAtLoginOptions(true)).openAtLogin,
+      success: true
+    };
+  } catch (error) {
+    return {
+      supported: false,
+      enabled: false,
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+function applyLaunchAtLogin(enabled) {
+  try {
+    app.setLoginItemSettings(getLaunchAtLoginOptions(enabled));
+    const state = readLaunchAtLoginState();
+    store.set('launchAtLogin', state.enabled);
+    return state;
+  } catch (error) {
+    return {
+      supported: false,
+      enabled: false,
+      success: false,
+      error: error.message
+    };
+  }
+}
 
 // 获取应用图标路径（支持多种格式回退）
 function getAppIcon() {
@@ -177,7 +238,7 @@ function stopReminderScheduler() {
 
 // 创建透明悬浮宠物窗口
 function createPetWindow() {
-  const alwaysOnTop = store.get('alwaysOnTop', false);
+  const alwaysOnTop = store.get('alwaysOnTop', true);
   const petSize = store.get('petSize', 'medium');
   const sizeConfig = getPetWindowSize(petSize, false);
   const appIcon = getAppIcon();
@@ -837,6 +898,18 @@ ipcMain.handle('store-set', (event, key, value) => {
 ipcMain.handle('store-delete', (event, key) => {
   store.delete(key);
   return true;
+});
+
+ipcMain.handle('launch-at-login-get', () => {
+  const state = readLaunchAtLoginState();
+  if (state.success) {
+    store.set('launchAtLogin', state.enabled);
+  }
+  return state;
+});
+
+ipcMain.handle('launch-at-login-set', (event, { enabled }) => {
+  return applyLaunchAtLogin(enabled);
 });
 
 // ========== 联网服务 IPC 处理 ==========

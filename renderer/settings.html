@@ -99,6 +99,17 @@
                 <span class="slider"></span>
               </label>
             </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>开机自动启动</label>
+                <p class="setting-desc">开启后，打包后的应用会随系统登录自动启动</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="launch-at-login">
+                <span class="slider"></span>
+              </label>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -114,9 +125,9 @@
             <div class="setting-item">
               <div class="setting-info">
                 <label>对我的称呼</label>
-                <p class="setting-desc">例如「主人」「小王」「同学」。留空则默认用「你」</p>
+                <p class="setting-desc">例如「主人」「小王」「同学」。留空则默认用「主人」</p>
               </div>
-              <input type="text" id="user-display-name" class="setting-input text-input" maxlength="30" placeholder="你">
+              <input type="text" id="user-display-name" class="setting-input text-input" maxlength="30" placeholder="主人">
             </div>
 
             <div class="setting-item">
@@ -274,7 +285,7 @@
                 <p class="setting-desc">选择对话窗口的强调色</p>
               </div>
               <select id="theme-select" class="setting-select">
-                <option value="shiba" selected>🐕 柴犬橙</option>
+                <option value="shiba" selected>🌿 松石青</option>
                 <option value="blue">💙 天空蓝</option>
                 <option value="purple">💜 优雅紫</option>
                 <option value="green">💚 清新绿</option>
