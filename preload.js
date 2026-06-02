@@ -68,6 +68,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendMessage: async (messages) => {
     return await ipcRenderer.invoke('send-message', { messages });
   },
+
+  sendPiAgentMessage: async (payload) => {
+    return await ipcRenderer.invoke('send-pi-agent-message', payload);
+  },
+
+  cancelPiAgentMessage: async (requestId) => {
+    return await ipcRenderer.invoke('cancel-pi-agent-message', { requestId });
+  },
+
+  getPiAgentStatus: async () => {
+    return await ipcRenderer.invoke('get-pi-agent-status');
+  },
+
+  onPiAgentEvent: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('pi-agent-event', listener);
+    return () => ipcRenderer.removeListener('pi-agent-event', listener);
+  },
   
   // 保存对话
   saveConversation: async (conversation) => {
@@ -133,6 +151,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   saveGeneratedImage: async (image) => {
     return await ipcRenderer.invoke('save-generated-image', { image });
+  },
+
+  selectDirectory: async (defaultPath) => {
+    return await ipcRenderer.invoke('select-directory', { defaultPath });
   },
   
   // API 配置管理

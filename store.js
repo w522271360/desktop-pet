@@ -27,6 +27,7 @@ const defaults = {
   petNetworkClientToken: '',
   petNetworkClientId: '',
   petNetworkNickname: '',
+  agentModeEnabled: false,
   reminders: [],
   apiConfigs: [],
   activeConfigId: null

@@ -366,7 +366,10 @@ async function loadConversation(id) {
   renderWelcomeMessage();
   conversationHistory.forEach((item, index) => {
     addMessage('user', item.question, null, null, index);
-    addMessage('assistant', item.answer, item.model || null);
+    const assistantMessageDiv = addMessage('assistant', item.answer, item.model || null);
+    if (item.processEvents || item.toolEvents) {
+      replayPiAgentProcess(assistantMessageDiv, item.processEvents, item.toolEvents);
+    }
   });
   forceScrollToBottom();
   renderConversationRecords();
@@ -1005,6 +1008,433 @@ async function addMessageStreaming(role, content, model = null, screenshot = nul
   return { messageDiv, displayedContent: currentText };
 }
 
+function formatPiProcessTime(value = Date.now()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function createPiAgentProcessPanel() {
+  const processDetails = document.createElement('details');
+  processDetails.className = 'agent-process-details hidden';
+  processDetails.open = true;
+
+  const processSummary = document.createElement('summary');
+  processSummary.className = 'agent-process-summary';
+
+  const summaryTitle = document.createElement('span');
+  summaryTitle.className = 'agent-process-summary-title';
+  summaryTitle.textContent = 'Agent 工作过程';
+
+  const summaryMeta = document.createElement('span');
+  summaryMeta.className = 'agent-process-summary-meta';
+  summaryMeta.textContent = '等待开始';
+
+  processSummary.appendChild(summaryTitle);
+  processSummary.appendChild(summaryMeta);
+  processDetails.appendChild(processSummary);
+
+  const processBody = document.createElement('div');
+  processBody.className = 'agent-process-body';
+
+  const processTimeline = document.createElement('div');
+  processTimeline.className = 'agent-process-timeline';
+  processBody.appendChild(processTimeline);
+
+  const toolLogDiv = document.createElement('div');
+  toolLogDiv.className = 'agent-tool-log hidden';
+  processBody.appendChild(toolLogDiv);
+
+  processDetails.appendChild(processBody);
+
+  return {
+    processDetails,
+    summaryMeta,
+    processTimeline,
+    toolLogDiv
+  };
+}
+
+function ensurePiAgentProcessPanel(streamingMessage) {
+  if (!streamingMessage) return null;
+  if (streamingMessage.processDetails) {
+    return streamingMessage;
+  }
+
+  const processPanel = createPiAgentProcessPanel();
+  streamingMessage.messageDiv.appendChild(processPanel.processDetails);
+  streamingMessage.processDetails = processPanel.processDetails;
+  streamingMessage.summaryMeta = processPanel.summaryMeta;
+  streamingMessage.processTimeline = processPanel.processTimeline;
+  streamingMessage.toolLogDiv = processPanel.toolLogDiv;
+
+  if (Array.isArray(streamingMessage.processEvents)) {
+    streamingMessage.processEvents.forEach(event => {
+      appendPiAgentProcessEntry(streamingMessage, event, { persist: false });
+    });
+  }
+
+  return streamingMessage;
+}
+
+function getPiProcessStatusLabel(status = 'pending') {
+  return {
+    pending: '等待开始',
+    running: '执行中',
+    done: '已完成',
+    error: '执行失败',
+    canceled: '已停止'
+  }[status] || '执行中';
+}
+
+function updatePiAgentProcessSummary(streamingMessage) {
+  if (!streamingMessage?.summaryMeta) return;
+
+  const stepCount = streamingMessage.processEvents.length;
+  const stepLabel = stepCount > 0 ? `${stepCount} 步` : '等待开始';
+  streamingMessage.summaryMeta.textContent = `${stepLabel} · ${getPiProcessStatusLabel(streamingMessage.processStatus || 'pending')}`;
+}
+
+function appendPiAgentProcessEntry(streamingMessage, processEvent, { persist = true } = {}) {
+  if (!streamingMessage || !processEvent) return;
+
+  const normalizedEvent = {
+    at: processEvent.at || Date.now(),
+    type: processEvent.type || 'status',
+    title: processEvent.title || '状态更新',
+    detail: processEvent.detail || '',
+    status: processEvent.status || 'running'
+  };
+
+  if (persist) {
+    streamingMessage.processEvents.push(normalizedEvent);
+  }
+
+  if (!streamingMessage.processTimeline) {
+    streamingMessage.processStatus = normalizedEvent.status;
+    return;
+  }
+
+  const entry = document.createElement('div');
+  entry.className = `agent-process-entry ${normalizedEvent.status}`;
+
+  const timeDiv = document.createElement('div');
+  timeDiv.className = 'agent-process-time';
+  timeDiv.textContent = formatPiProcessTime(normalizedEvent.at);
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'agent-process-entry-content';
+
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'agent-process-entry-title';
+  titleDiv.textContent = normalizedEvent.title;
+  contentDiv.appendChild(titleDiv);
+
+  if (normalizedEvent.detail) {
+    const detailDiv = document.createElement('pre');
+    detailDiv.className = 'agent-process-entry-detail';
+    detailDiv.textContent = normalizedEvent.detail;
+    contentDiv.appendChild(detailDiv);
+  }
+
+  entry.appendChild(timeDiv);
+  entry.appendChild(contentDiv);
+  streamingMessage.processTimeline.appendChild(entry);
+  streamingMessage.processDetails.classList.remove('hidden');
+
+  streamingMessage.processStatus = normalizedEvent.status;
+  updatePiAgentProcessSummary(streamingMessage);
+  smartScrollToBottom();
+}
+
+function buildPiProcessEventsFromLegacyToolEvents(toolEvents = []) {
+  if (!Array.isArray(toolEvents)) return [];
+
+  return toolEvents.map((event, index) => {
+    const status = event.type === 'tool-end'
+      ? (event.isError ? 'error' : 'done')
+      : 'running';
+    const title = event.type === 'tool-end'
+      ? `${event.toolName || 'tool'}${event.isError ? ' 执行失败' : ' 执行完成'}`
+      : event.type === 'tool-update'
+        ? `${event.toolName || 'tool'} 持续输出中`
+        : `${event.toolName || 'tool'} 运行中`;
+
+    return {
+      at: Date.now() + index,
+      type: event.type || 'tool-start',
+      title,
+      detail: event.content || '',
+      status
+    };
+  });
+}
+
+function replayPiAgentProcess(messageDiv, processEvents = [], toolEvents = []) {
+  if (!Array.isArray(toolEvents) || toolEvents.length === 0) {
+    return;
+  }
+
+  const panel = createPiAgentProcessPanel();
+  messageDiv.appendChild(panel.processDetails);
+
+  const state = {
+    ...panel,
+    processEvents: [],
+    processStatus: 'pending',
+    toolItems: new Map(),
+    toolEvents: [],
+    text: ''
+  };
+
+  const normalizedProcessEvents = Array.isArray(processEvents) && processEvents.length > 0
+    ? processEvents
+    : buildPiProcessEventsFromLegacyToolEvents(toolEvents);
+
+  normalizedProcessEvents.forEach(event => {
+    appendPiAgentProcessEntry(state, event, { persist: true });
+  });
+
+  if (Array.isArray(toolEvents)) {
+    toolEvents.forEach(event => {
+      updatePiAgentToolEvent(state, event, { persist: false, recordProcess: false });
+    });
+  }
+
+  if (state.processEvents.length === 0 && state.toolItems.size === 0) {
+    panel.processDetails.remove();
+  }
+}
+
+function createPiAgentStreamingMessage(model = 'Pi Agent') {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message assistant';
+  appendAssistantLabel(messageDiv, model);
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'message-content markdown-content streaming';
+  messageDiv.appendChild(contentDiv);
+
+  messagesContainer.appendChild(messageDiv);
+  smartScrollToBottom();
+
+  return {
+    messageDiv,
+    contentDiv,
+    processDetails: null,
+    summaryMeta: null,
+    processTimeline: null,
+    toolLogDiv: null,
+    text: '',
+    toolEvents: [],
+    processEvents: [],
+    processStatus: 'pending',
+    toolItems: new Map(),
+    hasLoggedTextStart: false,
+    hasLoggedCompletion: false,
+    hasLoggedStop: false,
+    markdownRenderTimer: null,
+    lastMarkdownRenderAt: 0
+  };
+}
+
+function renderPiAgentMarkdown(streamingMessage, { force = false } = {}) {
+  if (!streamingMessage?.contentDiv) return;
+
+  if (streamingMessage.markdownRenderTimer) {
+    clearTimeout(streamingMessage.markdownRenderTimer);
+    streamingMessage.markdownRenderTimer = null;
+  }
+
+  const renderNow = () => {
+    streamingMessage.lastMarkdownRenderAt = Date.now();
+    if (streamingMessage.text) {
+      window.ChatMarkdown.renderMarkdownInto(streamingMessage.contentDiv, streamingMessage.text);
+    } else {
+      streamingMessage.contentDiv.textContent = '';
+    }
+    smartScrollToBottom();
+  };
+
+  if (force) {
+    renderNow();
+    return;
+  }
+
+  const now = Date.now();
+  const elapsed = now - (streamingMessage.lastMarkdownRenderAt || 0);
+  const delay = elapsed >= 120 ? 0 : 120 - elapsed;
+  streamingMessage.markdownRenderTimer = setTimeout(renderNow, delay);
+}
+
+function appendPiAgentTextDelta(streamingMessage, delta) {
+  if (!streamingMessage || !delta) return;
+
+  if (!streamingMessage.hasLoggedTextStart) {
+    streamingMessage.hasLoggedTextStart = true;
+    appendPiAgentProcessEntry(streamingMessage, {
+      type: 'text-start',
+      title: '开始生成回复',
+      detail: 'Agent 已开始整理并输出最终结论。',
+      status: 'running'
+    });
+  }
+
+  streamingMessage.text += delta;
+  renderPiAgentMarkdown(streamingMessage);
+}
+
+function ensurePiToolItem(streamingMessage, toolCallId, toolName) {
+  ensurePiAgentProcessPanel(streamingMessage);
+  const key = toolCallId || `${toolName}-${streamingMessage.toolItems.size}`;
+  if (streamingMessage.toolItems.has(key)) {
+    return streamingMessage.toolItems.get(key);
+  }
+
+  const item = document.createElement('div');
+  item.className = 'agent-tool-item running';
+
+  const title = document.createElement('div');
+  title.className = 'agent-tool-title';
+  title.textContent = `${toolName || 'tool'} 运行中`;
+
+  const body = document.createElement('pre');
+  body.className = 'agent-tool-body';
+
+  item.appendChild(title);
+  item.appendChild(body);
+  streamingMessage.toolLogDiv.appendChild(item);
+  streamingMessage.toolLogDiv.classList.remove('hidden');
+  streamingMessage.toolItems.set(key, { item, title, body });
+  smartScrollToBottom();
+
+  return streamingMessage.toolItems.get(key);
+}
+
+function updatePiAgentToolEvent(streamingMessage, agentEvent, { persist = true, recordProcess = true } = {}) {
+  if (!streamingMessage || !agentEvent) return;
+
+  const toolName = agentEvent.toolName || 'tool';
+  const itemRef = ensurePiToolItem(streamingMessage, agentEvent.toolCallId, toolName);
+  const preview = agentEvent.result || agentEvent.partialResult;
+
+  if (agentEvent.type === 'tool-start') {
+    itemRef.item.className = 'agent-tool-item running';
+    itemRef.title.textContent = `${toolName} 运行中`;
+    itemRef.body.textContent = agentEvent.args ? JSON.stringify(agentEvent.args, null, 2) : '';
+  } else if (agentEvent.type === 'tool-update') {
+    itemRef.item.className = 'agent-tool-item running';
+    itemRef.title.textContent = `${toolName} 持续输出中`;
+    if (preview != null) {
+      itemRef.body.textContent = typeof preview === 'string' ? preview : JSON.stringify(preview, null, 2);
+    }
+  } else if (agentEvent.type === 'tool-end') {
+    itemRef.item.className = `agent-tool-item ${agentEvent.isError ? 'error' : 'done'}`;
+    itemRef.title.textContent = `${toolName}${agentEvent.isError ? ' 执行失败' : ' 执行完成'}`;
+    itemRef.body.textContent = preview || itemRef.body.textContent || '';
+  }
+
+  if (persist) {
+    streamingMessage.toolEvents.push({
+      type: agentEvent.type,
+      toolCallId: agentEvent.toolCallId || null,
+      toolName,
+      isError: Boolean(agentEvent.isError),
+      content: itemRef.body.textContent
+    });
+  }
+
+  if (recordProcess) {
+    appendPiAgentProcessEntry(streamingMessage, {
+      type: agentEvent.type,
+      title: agentEvent.type === 'tool-end'
+        ? `${toolName}${agentEvent.isError ? ' 执行失败' : ' 执行完成'}`
+        : agentEvent.type === 'tool-update'
+          ? `${toolName} 持续输出中`
+          : `${toolName} 运行中`,
+      detail: itemRef.body.textContent,
+      status: agentEvent.type === 'tool-end'
+        ? (agentEvent.isError ? 'error' : 'done')
+        : 'running'
+    }, { persist });
+  }
+
+  smartScrollToBottom();
+}
+
+function markPiAgentStreamingMessageStopped(streamingMessage) {
+  if (!streamingMessage) return;
+
+  streamingMessage.toolItems.forEach((itemRef, toolCallId) => {
+    if (!itemRef?.item?.classList.contains('running')) return;
+
+    const fallbackToolName = String(toolCallId || 'tool').split('-')[0] || 'tool';
+    const toolName = itemRef.title.textContent.split(' ')[0] || fallbackToolName;
+    itemRef.item.className = 'agent-tool-item canceled';
+    itemRef.title.textContent = `${toolName} 已停止`;
+    if (!itemRef.body.textContent.trim()) {
+      itemRef.body.textContent = '已取消这次工具执行。';
+    }
+  });
+
+  if (streamingMessage.text) {
+    if (!streamingMessage.text.includes('已停止这次 agent 任务。')) {
+      streamingMessage.text += '\n\n已停止这次 agent 任务。';
+    }
+  } else {
+    streamingMessage.text = '已停止这次 agent 任务。';
+  }
+
+  if (!streamingMessage.hasLoggedStop) {
+    streamingMessage.hasLoggedStop = true;
+    appendPiAgentProcessEntry(streamingMessage, {
+      type: 'session-aborted',
+      title: '任务已停止',
+      detail: '这次 agent 任务已被手动停止。',
+      status: 'canceled'
+    });
+  }
+
+  streamingMessage.contentDiv.classList.remove('streaming');
+  renderPiAgentMarkdown(streamingMessage, { force: true });
+}
+
+function finalizePiAgentStreamingMessage(streamingMessage, { fallbackText = '', aborted = false } = {}) {
+  if (!streamingMessage) return '';
+
+  if (!streamingMessage.text && fallbackText) {
+    streamingMessage.text = fallbackText;
+  }
+
+  if (aborted) {
+    markPiAgentStreamingMessageStopped(streamingMessage);
+    return streamingMessage.text;
+  }
+
+  if (!streamingMessage.hasLoggedCompletion) {
+    streamingMessage.hasLoggedCompletion = true;
+    appendPiAgentProcessEntry(streamingMessage, {
+      type: 'text-complete',
+      title: '回复生成完成',
+      detail: 'Agent 已完成本次任务并返回最终结果。',
+      status: 'done'
+    });
+  }
+
+  if (!streamingMessage.processDetails && streamingMessage.toolEvents.length === 0) {
+    streamingMessage.processEvents = [];
+  }
+
+  streamingMessage.contentDiv.classList.remove('streaming');
+  renderPiAgentMarkdown(streamingMessage, { force: true });
+
+  return streamingMessage.text;
+}
+
 function beginGeneration() {
   activeGenerationId += 1;
   stoppedGenerationIds.delete(activeGenerationId);
@@ -1073,6 +1503,22 @@ async function sendMessage(isRegenerate = false) {
 
   if (window.ImageIntent.requestsImageOutput(question)) {
     await sendGeneratedImage(question);
+    return;
+  }
+
+  const agentModeEnabled = await window.electronAPI.storeGet('agentModeEnabled') === true;
+
+  if (isPiAgentCommand(question)) {
+    if (!agentModeEnabled) {
+      showStatus('Agent 模式当前已关闭，请到设置中开启后再使用 /agent', 'info');
+      return;
+    }
+    await sendPiAgentMessage(question);
+    return;
+  }
+
+  if (agentModeEnabled) {
+    await sendPiAgentMessage(question);
     return;
   }
 
@@ -1162,6 +1608,139 @@ async function sendMessage(isRegenerate = false) {
     addMessage('assistant', msg.text, '提示 💡');
     showStatus(msg.text.split('\n')[0], msg.type);
   } finally {
+    finishGeneration(generationId);
+  }
+}
+
+function isPiAgentCommand(question) {
+  return /^\/agent(?:\s|$)/i.test(String(question || '').trim());
+}
+
+function extractPiAgentPrompt(question) {
+  return String(question || '').trim().replace(/^\/agent\s*/i, '');
+}
+
+async function sendPiAgentMessage(question) {
+  const agentPrompt = extractPiAgentPrompt(question);
+  if (!agentPrompt) {
+    showStatus('请输入 /agent 后要执行的任务', 'info');
+    return;
+  }
+
+  const activeConfig = await window.electronAPI.getActiveConfig();
+  const agentWorkDirectory = (await window.electronAPI.storeGet('agentWorkDirectory')) || '';
+  const agentModelLabel = activeConfig?.selectedModel || 'Pi Agent';
+
+  const generationId = beginGeneration();
+  const userMsgIndex = conversationHistory.length;
+  addMessage('user', question, null, null, userMsgIndex);
+  forceScrollToBottom();
+  userInput.value = '';
+  userInput.style.height = 'auto';
+
+  const requestId = `pi-agent-${generationId}-${Date.now()}`;
+  const streamingMessage = createPiAgentStreamingMessage(agentModelLabel);
+  const removePiAgentListener = window.electronAPI.onPiAgentEvent((agentEvent) => {
+    if (!agentEvent || agentEvent.requestId !== requestId || !isGenerationActive(generationId)) {
+      return;
+    }
+
+    hideLoading();
+
+    if (agentEvent.type === 'session-started') {
+      appendPiAgentProcessEntry(streamingMessage, {
+        type: 'session-started',
+        title: '任务已启动',
+        detail: 'Agent 已启动，正在规划接下来的步骤。',
+        status: 'running'
+      });
+      return;
+    }
+
+    if (agentEvent.type === 'text-delta') {
+      appendPiAgentTextDelta(streamingMessage, agentEvent.delta);
+      return;
+    }
+
+    if (agentEvent.type === 'tool-start' || agentEvent.type === 'tool-update' || agentEvent.type === 'tool-end') {
+      updatePiAgentToolEvent(streamingMessage, agentEvent);
+      return;
+    }
+
+    if (agentEvent.type === 'session-error') {
+      appendPiAgentProcessEntry(streamingMessage, {
+        type: 'session-error',
+        title: '任务执行失败',
+        detail: agentEvent.error || 'Pi agent 执行失败',
+        status: 'error'
+      });
+      showStatus(`Pi agent 运行失败：${agentEvent.error}`, 'warning');
+      return;
+    }
+
+    if (agentEvent.type === 'session-aborted') {
+      markPiAgentStreamingMessageStopped(streamingMessage);
+    }
+  });
+
+  activeGenerationRollback = () => {
+    markPiAgentStreamingMessageStopped(streamingMessage);
+    void window.electronAPI.cancelPiAgentMessage(requestId);
+  };
+
+  showLoading();
+
+  try {
+    const response = await window.electronAPI.sendPiAgentMessage({
+      requestId,
+      prompt: agentPrompt,
+      cwd: agentWorkDirectory || null,
+      history: conversationHistory
+    });
+    if (!isGenerationActive(generationId)) return;
+    hideLoading();
+
+    const answer = finalizePiAgentStreamingMessage(streamingMessage, {
+      fallbackText: response.success
+        ? response.content
+        : response.error || 'Pi agent 调用失败'
+    });
+    const model = response.success ? (response.model || agentModelLabel) : `${agentModelLabel} (error)`;
+
+    conversationHistory.push({
+      question,
+      answer,
+      model,
+      toolEvents: streamingMessage.toolEvents,
+      processEvents: streamingMessage.processEvents
+    });
+    if (!currentConversationId && conversationHistory.length === 1) {
+      currentConversationTitle = deriveConversationTitle(question);
+    }
+    await persistCurrentConversation();
+    if (!response.success) {
+      showStatus('Pi agent 运行环境还没准备好', 'warning');
+    }
+  } catch (error) {
+    hideLoading();
+    const stopped = stoppedGenerationIds.has(generationId);
+    const answer = finalizePiAgentStreamingMessage(streamingMessage, {
+      fallbackText: stopped ? '已停止这次 agent 任务。' : `Pi agent 调用失败：${error.message}`,
+      aborted: stopped
+    });
+    if (!stopped) {
+      appendPiAgentProcessEntry(streamingMessage, {
+        type: 'session-error',
+        title: '任务执行失败',
+        detail: error.message || 'Pi agent 调用失败',
+        status: 'error'
+      });
+    }
+    if (!stopped) {
+      showStatus(answer, 'warning');
+    }
+  } finally {
+    removePiAgentListener?.();
     finishGeneration(generationId);
   }
 }

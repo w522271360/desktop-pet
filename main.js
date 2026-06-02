@@ -5,6 +5,7 @@ const axios = require('axios');
 const config = require('./config');
 const store = require('./store');
 const apiService = require('./api-service');
+const piAgentService = require('./pi-agent-service');
 const { notifyApiConfigsChanged } = require('./config-change-notifier');
 const { getImageExtension } = require('./generated-image-export');
 const { resolveConversationSavePath } = require('./conversation-save-path');
@@ -13,7 +14,6 @@ const { getPortableRelaunchOptions } = require('./portable-restart');
 const { createPetNetworkClient } = require('./pet-network-client');
 
 const APP_NAME = '桌面小助手';
-
 app.setName(APP_NAME);
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.king.desktop-helper');
@@ -248,10 +248,15 @@ function createPetWindow() {
     height: sizeConfig.height,
     transparent: true,
     frame: false,
+    type: 'toolbar',
     alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
-    focusable: true,
+    focusable: false,
     skipTaskbar: true,
+    show: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -280,6 +285,7 @@ function createPetWindow() {
   const x = width - sizeConfig.width - 20; // 距离右边缘20px
   const y = height - sizeConfig.height - 20; // 距离底部20px
   petWindow.setPosition(x, y);
+  petWindow.setSkipTaskbar(true);
   if (process.argv.includes('--dev')) {
     console.log('[pet] window-bounds', petWindow.getBounds());
   }
@@ -291,6 +297,8 @@ function createPetWindow() {
   }
 
   petWindow.webContents.once('did-finish-load', () => {
+    petWindow.showInactive();
+    petWindow.setSkipTaskbar(true);
     sendActiveReminderToPet();
   });
 
@@ -342,6 +350,13 @@ function createChatWindow() {
   
   chatWindow = new BrowserWindow(options);
   chatWindowReady = false;
+
+  chatWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[chat] did-fail-load', errorCode, errorDescription);
+  });
+  chatWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('[chat] render-process-gone', JSON.stringify(details));
+  });
 
   chatWindow.loadFile(path.join(__dirname, 'renderer', 'chat.html'));
 
@@ -677,11 +692,11 @@ ipcMain.on('paste-to-chat', () => {
 
 ipcMain.on('focus-pet-window', () => {
   if (!petWindow || petWindow.isDestroyed()) return;
-
-  petWindow.setFocusable(true);
-  if (!petWindow.isFocused()) {
-    petWindow.focus();
+  if (!petWindow.isVisible()) {
+    petWindow.showInactive();
   }
+  petWindow.moveTop();
+  petWindow.setSkipTaskbar(true);
 });
 
 ipcMain.on('chat-ready-for-paste', () => {
@@ -758,6 +773,34 @@ ipcMain.handle('send-message', async (event, { messages }) => {
   return await apiService.sendMessage(messages);
 });
 
+ipcMain.handle('send-pi-agent-message', async (event, payload = {}) => {
+  const requestId = String(payload.requestId || '').trim() || `pi-agent-${Date.now()}`;
+  const sendPiEvent = (agentEvent) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('pi-agent-event', {
+        requestId,
+        ...agentEvent
+      });
+    }
+  };
+
+  return await piAgentService.sendMessage({
+    requestId,
+    prompt: payload.prompt,
+    cwd: payload.cwd,
+    history: payload.history,
+    onEvent: sendPiEvent
+  });
+});
+
+ipcMain.handle('get-pi-agent-status', () => {
+  return piAgentService.getStatus();
+});
+
+ipcMain.handle('cancel-pi-agent-message', async (event, payload = {}) => {
+  return await piAgentService.cancelMessage(payload.requestId);
+});
+
 ipcMain.handle('save-conversation', async (event, { conversation }) => {
   return await saveConversationAsMarkdown(conversation);
 });
@@ -832,6 +875,23 @@ ipcMain.handle('save-generated-image', async (event, { image }) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('select-directory', async (event, { defaultPath } = {}) => {
+  const result = await dialog.showOpenDialog(settingsWindow || chatWindow || petWindow, {
+    title: '选择 Agent 工作目录',
+    properties: ['openDirectory'],
+    defaultPath: typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : undefined
+  });
+
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+
+  return {
+    canceled: false,
+    path: result.filePaths[0]
+  };
 });
 
 // 测试 API 配置
@@ -1223,7 +1283,6 @@ app.whenReady().then(async () => {
   // 自动打开对话窗口（如果已启用）
   const autoOpenChat = store.get('autoOpenChat', false);
   if (autoOpenChat) {
-    console.log('💬 自动打开对话窗口...');
     setTimeout(() => {
       createChatWindow();
     }, 500); // 延迟500ms，确保宠物窗口先加载完成

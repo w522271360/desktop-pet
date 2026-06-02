@@ -41,6 +41,8 @@ secrets.js
 .omx/
 tmp/
 temp/
+third_party/pi/node_modules/
+third_party/pi/packages/*/dist/
 
 # Electron 相关
 .electron/

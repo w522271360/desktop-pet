@@ -1,4 +1,4 @@
-* {
+﻿* {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -599,6 +599,158 @@ body {
   animation: blink 0.8s infinite;
   color: var(--primary);
   margin-left: 2px;
+}
+
+.agent-process-details {
+  margin-top: 12px;
+  border: 1px solid rgba(255, 204, 128, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 252, 247, 0.88);
+  overflow: hidden;
+}
+
+.agent-process-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-weight: 700;
+  color: #8D4E00;
+}
+
+.agent-process-summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-process-summary-title {
+  font-size: 13px;
+}
+
+.agent-process-summary-meta {
+  font-size: 12px;
+  color: #A16207;
+}
+
+.agent-process-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.agent-process-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-process-entry {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 248, 240, 0.9);
+  border: 1px solid rgba(255, 224, 178, 0.9);
+}
+
+.agent-process-entry.running {
+  border-color: rgba(255, 183, 77, 0.9);
+}
+
+.agent-process-entry.done {
+  border-color: rgba(129, 199, 132, 0.9);
+  background: rgba(232, 245, 233, 0.85);
+}
+
+.agent-process-entry.error {
+  border-color: rgba(229, 115, 115, 0.9);
+  background: rgba(255, 235, 238, 0.9);
+}
+
+.agent-process-entry.canceled {
+  border-color: rgba(120, 144, 156, 0.75);
+  background: rgba(245, 245, 245, 0.92);
+}
+
+.agent-process-time {
+  font-size: 11px;
+  font-weight: 700;
+  color: #A16207;
+  padding-top: 2px;
+}
+
+.agent-process-entry-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7C4700;
+}
+
+.agent-process-entry-detail {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #5D4037;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.agent-tool-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(230, 81, 0, 0.18);
+}
+
+.agent-tool-item {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 248, 240, 0.8);
+  border: 1px solid rgba(255, 204, 128, 0.7);
+}
+
+.agent-tool-item.running {
+  border-color: rgba(255, 183, 77, 0.9);
+}
+
+.agent-tool-item.done {
+  border-color: rgba(129, 199, 132, 0.9);
+  background: rgba(232, 245, 233, 0.85);
+}
+
+.agent-tool-item.error {
+  border-color: rgba(229, 115, 115, 0.9);
+  background: rgba(255, 235, 238, 0.9);
+}
+
+.agent-tool-item.canceled {
+  border-color: rgba(120, 144, 156, 0.75);
+  background: rgba(245, 245, 245, 0.92);
+}
+
+.agent-tool-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #8D4E00;
+}
+
+.agent-tool-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #5D4037;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @keyframes blink {
@@ -1221,6 +1373,88 @@ body.dark-mode .model-badge {
 
 body.dark-mode .message-content.streaming::after {
   color: #FFB74D;
+}
+
+body.dark-mode .agent-process-details {
+  border-color: rgba(61, 74, 106, 0.92);
+  background: rgba(24, 31, 48, 0.82);
+}
+
+body.dark-mode .agent-process-summary {
+  color: #FFCC80;
+}
+
+body.dark-mode .agent-process-summary-meta,
+body.dark-mode .agent-process-time {
+  color: #FFD180;
+}
+
+body.dark-mode .agent-process-entry {
+  background: rgba(37, 37, 64, 0.75);
+  border-color: rgba(61, 74, 106, 0.9);
+}
+
+body.dark-mode .agent-process-entry.running {
+  border-color: rgba(255, 183, 77, 0.75);
+}
+
+body.dark-mode .agent-process-entry.done {
+  border-color: rgba(129, 199, 132, 0.7);
+  background: rgba(27, 63, 38, 0.45);
+}
+
+body.dark-mode .agent-process-entry.error {
+  border-color: rgba(239, 154, 154, 0.7);
+  background: rgba(97, 26, 21, 0.45);
+}
+
+body.dark-mode .agent-process-entry.canceled {
+  border-color: rgba(144, 164, 174, 0.65);
+  background: rgba(45, 55, 72, 0.72);
+}
+
+body.dark-mode .agent-process-entry-title {
+  color: #FFE0B2;
+}
+
+body.dark-mode .agent-process-entry-detail {
+  color: #E4E4E7;
+}
+
+body.dark-mode .agent-tool-log {
+  border-top-color: rgba(255, 183, 77, 0.25);
+}
+
+body.dark-mode .agent-tool-item {
+  background: rgba(37, 37, 64, 0.75);
+  border-color: rgba(61, 74, 106, 0.9);
+}
+
+body.dark-mode .agent-tool-item.running {
+  border-color: rgba(255, 183, 77, 0.75);
+}
+
+body.dark-mode .agent-tool-item.done {
+  border-color: rgba(129, 199, 132, 0.7);
+  background: rgba(27, 63, 38, 0.45);
+}
+
+body.dark-mode .agent-tool-item.error {
+  border-color: rgba(239, 154, 154, 0.7);
+  background: rgba(97, 26, 21, 0.45);
+}
+
+body.dark-mode .agent-tool-item.canceled {
+  border-color: rgba(144, 164, 174, 0.65);
+  background: rgba(45, 55, 72, 0.72);
+}
+
+body.dark-mode .agent-tool-title {
+  color: #FFCC80;
+}
+
+body.dark-mode .agent-tool-body {
+  color: #E4E4E7;
 }
 
 body.dark-mode .markdown-content blockquote {

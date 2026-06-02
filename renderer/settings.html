@@ -140,6 +140,29 @@
                 <span class="slider"></span>
               </label>
             </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>启用 Agent 模式</label>
+                <p class="setting-desc">开启后普通文字对话默认走 Agent，无需输入 /agent；关闭后恢复普通聊天</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="agent-mode-enabled">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label>Agent 工作目录</label>
+                <p class="setting-desc">Agent 的读写和命令默认会在这里执行。留空时使用当前应用启动目录。</p>
+              </div>
+              <div class="setting-input-row">
+                <input type="text" id="agent-work-directory" class="setting-input text-input" placeholder="留空则使用当前应用目录">
+                <button type="button" id="agent-work-directory-browse" class="secondary-btn">选择文件夹</button>
+                <button type="button" id="agent-work-directory-clear" class="secondary-btn">清空</button>
+              </div>
+            </div>
           </div>
 
         </div>

@@ -1,4 +1,4 @@
-// 设置页面 - 侧边栏导航版本
+﻿// 设置页面 - 侧边栏导航版本
 let appConfig = null;
 let apiConfigs = [];
 let editingConfigId = null;
@@ -50,6 +50,10 @@ const fontSizeSelect = document.getElementById('font-size');
 // DOM元素 - 对话设置
 const autoOpenChatCheckbox = document.getElementById('auto-open-chat');
 const saveHistoryCheckbox = document.getElementById('save-history');
+const agentModeEnabledCheckbox = document.getElementById('agent-mode-enabled');
+const agentWorkDirectoryInput = document.getElementById('agent-work-directory');
+const agentWorkDirectoryBrowseBtn = document.getElementById('agent-work-directory-browse');
+const agentWorkDirectoryClearBtn = document.getElementById('agent-work-directory-clear');
 const assistantNicknameInput = document.getElementById('assistant-nickname');
 const userDisplayNameInput = document.getElementById('user-display-name');
 
@@ -417,6 +421,16 @@ async function loadChatSettings() {
     saveHistoryCheckbox.checked = saveHistory !== false; // 默认开启
   }
 
+  const agentModeEnabled = await window.electronAPI.storeGet('agentModeEnabled');
+  if (agentModeEnabledCheckbox) {
+    agentModeEnabledCheckbox.checked = agentModeEnabled === true;
+  }
+
+  const agentWorkDirectory = await window.electronAPI.storeGet('agentWorkDirectory');
+  if (agentWorkDirectoryInput) {
+    agentWorkDirectoryInput.value = typeof agentWorkDirectory === 'string' ? agentWorkDirectory : '';
+  }
+
   const assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
   if (assistantNicknameInput) {
     assistantNicknameInput.value = assistantNickname;
@@ -602,6 +616,41 @@ function bindEvents() {
   saveHistoryCheckbox?.addEventListener('change', async () => {
     await window.electronAPI.storeSet('saveHistory', saveHistoryCheckbox.checked);
     showToast(saveHistoryCheckbox.checked ? '✅ 对话历史将会自动保存' : '⏹️ 对话历史自动保存已关闭', 'success');
+  });
+
+  agentModeEnabledCheckbox?.addEventListener('change', async () => {
+    await window.electronAPI.storeSet('agentModeEnabled', agentModeEnabledCheckbox.checked);
+    showToast(
+      agentModeEnabledCheckbox.checked
+        ? '✅ Agent 模式已启用，普通文字对话现在默认走 Agent'
+        : '⏹️ Agent 模式已关闭，已恢复普通聊天',
+      'success'
+    );
+  });
+
+  agentWorkDirectoryBrowseBtn?.addEventListener('click', async () => {
+    const result = await window.electronAPI.selectDirectory(agentWorkDirectoryInput?.value.trim() || '');
+    if (!result || result.canceled) return;
+    if (agentWorkDirectoryInput) {
+      agentWorkDirectoryInput.value = result.path || '';
+    }
+    await window.electronAPI.storeSet('agentWorkDirectory', result.path || '');
+    showToast('✅ Agent 工作目录已更新', 'success');
+  });
+
+  agentWorkDirectoryInput?.addEventListener('change', async () => {
+    const value = agentWorkDirectoryInput.value.trim();
+    agentWorkDirectoryInput.value = value;
+    await window.electronAPI.storeSet('agentWorkDirectory', value);
+    showToast(value ? '✅ Agent 工作目录已保存' : '✅ 已恢复使用当前应用目录', 'success');
+  });
+
+  agentWorkDirectoryClearBtn?.addEventListener('click', async () => {
+    if (agentWorkDirectoryInput) {
+      agentWorkDirectoryInput.value = '';
+    }
+    await window.electronAPI.storeSet('agentWorkDirectory', '');
+    showToast('✅ 已恢复使用当前应用目录', 'success');
   });
 
   assistantNicknameInput?.addEventListener('change', async () => {
