@@ -31,6 +31,7 @@ let settingsWindow = null;
 let screenshotSelectorWindow = null;
 let reminderCheckTimer = null;
 let activeReminderId = null;
+let isAppQuitting = false;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -188,6 +189,17 @@ function showPetNetworkBubble(payload) {
     text: payload?.text || '',
     from: payload?.from || null,
     sentAt: payload?.sentAt || new Date().toISOString()
+  });
+}
+
+function showPetChatBubble(payload) {
+  if (!payload?.text) return;
+  resizePetWindowForReminder(true);
+  sendToWindow(petWindow, 'pet-chat-bubble', {
+    title: payload.title || '小秘书',
+    text: payload.text,
+    meta: payload.meta || '',
+    variant: payload.variant || 'chat'
   });
 }
 
@@ -363,6 +375,12 @@ function createChatWindow() {
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  chatWindow.on('close', (event) => {
+    if (isAppQuitting) return;
+    event.preventDefault();
+    chatWindow.hide();
+  });
 
   chatWindow.on('closed', () => {
     chatWindow = null;
@@ -712,10 +730,12 @@ ipcMain.on('open-settings', () => {
 });
 
 ipcMain.on('quit-app', () => {
+  isAppQuitting = true;
   app.quit();
 });
 
 ipcMain.on('restart-app', () => {
+  isAppQuitting = true;
   app.relaunch(getPortableRelaunchOptions() || undefined);
   app.exit(0);
 });
@@ -1040,6 +1060,17 @@ ipcMain.on('pet-network-bubble-closed', () => {
   }
 });
 
+ipcMain.on('pet-chat-bubble', (event, payload) => {
+  showPetChatBubble(payload);
+});
+
+ipcMain.on('pet-chat-bubble-clear', () => {
+  sendToWindow(petWindow, 'pet-chat-bubble-clear');
+  if (!activeReminderId) {
+    resizePetWindowForReminder(false);
+  }
+});
+
 // ========== 主题相关 IPC 处理 ==========
 
 // 广播主题变化到所有窗口
@@ -1305,6 +1336,7 @@ app.on('window-all-closed', () => {
 
 // 应用退出时清理
 app.on('before-quit', async () => {
+  isAppQuitting = true;
   stopReminderScheduler();
   
   console.log('👋 应用正在退出...');

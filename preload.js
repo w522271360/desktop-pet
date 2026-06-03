@@ -327,6 +327,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPetNetworkBubble: (callback) => {
     ipcRenderer.on('pet-network-bubble', (event, payload) => callback(payload));
   },
+  sendPetChatBubble: (payload) => {
+    ipcRenderer.send('pet-chat-bubble', payload);
+  },
+  clearPetChatBubble: () => {
+    ipcRenderer.send('pet-chat-bubble-clear');
+  },
+  onPetChatBubble: (callback) => {
+    ipcRenderer.on('pet-chat-bubble', (event, payload) => callback(payload));
+  },
   
   // ========== 主题相关 API ==========
   

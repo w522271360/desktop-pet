@@ -896,6 +896,25 @@ function buildPersonalizedPrompt(prompt) {
   return `你在本应用中的助手昵称是「${nickname}」。请用中文回复。称呼用户时，使用「${userName}」。\n\n${prompt}`;
 }
 
+async function isPetChatBubbleEnabled() {
+  return await window.electronAPI.storeGet('petChatBubbleEnabled') === true;
+}
+
+function buildPetBubbleSummary(text, maxLength = 42) {
+  const normalized = String(text || '')
+    .replace(/[`#>*_\-\[\]\(\)]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+}
+
+async function sendPetBubbleIfEnabled(payload) {
+  if (!payload?.text) return;
+  if (!(await isPetChatBubbleEnabled())) return;
+  window.electronAPI.sendPetChatBubble(payload);
+}
+
 function handleImagePaste(event) {
   const imageItem = window.ImageAttachment.findClipboardImage(event.clipboardData?.items);
   if (!imageItem) return;
@@ -1021,7 +1040,7 @@ function formatPiProcessTime(value = Date.now()) {
 function createPiAgentProcessPanel() {
   const processDetails = document.createElement('details');
   processDetails.className = 'agent-process-details hidden';
-  processDetails.open = true;
+  processDetails.open = false;
 
   const processSummary = document.createElement('summary');
   processSummary.className = 'agent-process-summary';
@@ -1559,6 +1578,12 @@ async function sendMessage(isRegenerate = false) {
   try {
     await loadPersonalizationSettings();
     const requestMessages = buildPersonalizedMessages(apiMessages);
+    await sendPetBubbleIfEnabled({
+      title: assistantNickname || '小秘书',
+      text: '正在思考怎么回答你。',
+      meta: '对话进度',
+      variant: 'progress'
+    });
     const response = await window.electronAPI.sendMessage(requestMessages);
     
     if (!isGenerationActive(generationId)) return;
@@ -1588,6 +1613,12 @@ async function sendMessage(isRegenerate = false) {
         answer: displayedAnswer,
         model: model,
         toolCalls: response.toolCalls
+      });
+      await sendPetBubbleIfEnabled({
+        title: assistantNickname || '小秘书',
+        text: buildPetBubbleSummary(displayedAnswer),
+        meta: '回复已完成',
+        variant: 'final'
       });
       if (!currentConversationId && conversationHistory.length === 1) {
         currentConversationTitle = deriveConversationTitle(question);
@@ -1640,6 +1671,8 @@ async function sendPiAgentMessage(question) {
 
   const requestId = `pi-agent-${generationId}-${Date.now()}`;
   const streamingMessage = createPiAgentStreamingMessage(agentModelLabel);
+  let hasSentPetToolProgress = false;
+  let hasSentPetAnswerProgress = false;
   const removePiAgentListener = window.electronAPI.onPiAgentEvent((agentEvent) => {
     if (!agentEvent || agentEvent.requestId !== requestId || !isGenerationActive(generationId)) {
       return;
@@ -1648,6 +1681,12 @@ async function sendPiAgentMessage(question) {
     hideLoading();
 
     if (agentEvent.type === 'session-started') {
+      void sendPetBubbleIfEnabled({
+        title: assistantNickname || '小秘书',
+        text: '开始处理这次任务了。',
+        meta: 'Agent 进度',
+        variant: 'progress'
+      });
       appendPiAgentProcessEntry(streamingMessage, {
         type: 'session-started',
         title: '任务已启动',
@@ -1658,11 +1697,29 @@ async function sendPiAgentMessage(question) {
     }
 
     if (agentEvent.type === 'text-delta') {
+      if (!hasSentPetAnswerProgress) {
+        hasSentPetAnswerProgress = true;
+        void sendPetBubbleIfEnabled({
+          title: assistantNickname || '小秘书',
+          text: '正在整理结论，马上告诉你。',
+          meta: 'Agent 进度',
+          variant: 'progress'
+        });
+      }
       appendPiAgentTextDelta(streamingMessage, agentEvent.delta);
       return;
     }
 
     if (agentEvent.type === 'tool-start' || agentEvent.type === 'tool-update' || agentEvent.type === 'tool-end') {
+      if (!hasSentPetToolProgress && agentEvent.type === 'tool-start') {
+        hasSentPetToolProgress = true;
+        void sendPetBubbleIfEnabled({
+          title: assistantNickname || '小秘书',
+          text: '正在检查文件和环境。',
+          meta: 'Agent 进度',
+          variant: 'progress'
+        });
+      }
       updatePiAgentToolEvent(streamingMessage, agentEvent);
       return;
     }
@@ -1718,6 +1775,14 @@ async function sendPiAgentMessage(question) {
       currentConversationTitle = deriveConversationTitle(question);
     }
     await persistCurrentConversation();
+    if (response.success) {
+      await sendPetBubbleIfEnabled({
+        title: assistantNickname || '小秘书',
+        text: buildPetBubbleSummary(answer),
+        meta: 'Agent 已完成',
+        variant: 'final'
+      });
+    }
     if (!response.success) {
       showStatus('Pi agent 运行环境还没准备好', 'warning');
     }

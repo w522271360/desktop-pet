@@ -51,6 +51,7 @@ const fontSizeSelect = document.getElementById('font-size');
 const autoOpenChatCheckbox = document.getElementById('auto-open-chat');
 const saveHistoryCheckbox = document.getElementById('save-history');
 const agentModeEnabledCheckbox = document.getElementById('agent-mode-enabled');
+const petChatBubbleEnabledCheckbox = document.getElementById('pet-chat-bubble-enabled');
 const agentWorkDirectoryInput = document.getElementById('agent-work-directory');
 const agentWorkDirectoryBrowseBtn = document.getElementById('agent-work-directory-browse');
 const agentWorkDirectoryClearBtn = document.getElementById('agent-work-directory-clear');
@@ -426,6 +427,11 @@ async function loadChatSettings() {
     agentModeEnabledCheckbox.checked = agentModeEnabled === true;
   }
 
+  const petChatBubbleEnabled = await window.electronAPI.storeGet('petChatBubbleEnabled');
+  if (petChatBubbleEnabledCheckbox) {
+    petChatBubbleEnabledCheckbox.checked = petChatBubbleEnabled === true;
+  }
+
   const agentWorkDirectory = await window.electronAPI.storeGet('agentWorkDirectory');
   if (agentWorkDirectoryInput) {
     agentWorkDirectoryInput.value = typeof agentWorkDirectory === 'string' ? agentWorkDirectory : '';
@@ -624,6 +630,16 @@ function bindEvents() {
       agentModeEnabledCheckbox.checked
         ? '✅ Agent 模式已启用，普通文字对话现在默认走 Agent'
         : '⏹️ Agent 模式已关闭，已恢复普通聊天',
+      'success'
+    );
+  });
+
+  petChatBubbleEnabledCheckbox?.addEventListener('change', async () => {
+    await window.electronAPI.storeSet('petChatBubbleEnabled', petChatBubbleEnabledCheckbox.checked);
+    showToast(
+      petChatBubbleEnabledCheckbox.checked
+        ? '✅ 已开启桌宠气泡播报'
+        : '⏹️ 已关闭桌宠气泡播报',
       'success'
     );
   });

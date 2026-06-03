@@ -28,6 +28,7 @@ const defaults = {
   petNetworkClientId: '',
   petNetworkNickname: '',
   agentModeEnabled: false,
+  petChatBubbleEnabled: false,
   reminders: [],
   apiConfigs: [],
   activeConfigId: null

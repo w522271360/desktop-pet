@@ -31,7 +31,7 @@
       height: 100%;
       display: flex;
       align-items: flex-end;
-      justify-content: flex-start;
+      justify-content: flex-end;
       padding: 6px 8px 8px;
       -webkit-app-region: no-drag;
     }
@@ -40,7 +40,7 @@
       position: relative;
       display: flex;
       align-items: center;
-      justify-content: flex-start;
+      justify-content: flex-end;
       width: 100%;
       height: 100%;
       -webkit-app-region: no-drag;
@@ -49,7 +49,7 @@
     #pet-shadow {
       position: absolute;
       bottom: 2px;
-      left: calc(8px + (var(--pet-size) * 0.14));
+      right: calc(8px + (var(--pet-size) * 0.14));
       width: calc(var(--pet-size) * 0.72);
       height: 18px;
       border-radius: 999px;
@@ -93,7 +93,7 @@
     #reminder-bubble {
       display: none;
       position: absolute;
-      left: calc(var(--pet-size) + 18px);
+      right: calc(var(--pet-size) + 18px);
       top: 8px;
       z-index: 4;
       width: min(198px, calc(100vw - var(--pet-size) - 32px));
@@ -116,12 +116,12 @@
     #reminder-bubble::after {
       content: "";
       position: absolute;
-      left: -8px;
+      right: -8px;
       bottom: 24px;
       width: 15px;
       height: 15px;
-      border-left: 1px solid rgba(255, 152, 0, 0.2);
-      border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+      border-right: 1px solid rgba(255, 152, 0, 0.2);
+      border-top: 1px solid rgba(255, 152, 0, 0.2);
       background: rgba(255, 255, 255, 0.97);
       transform: rotate(45deg);
     }
@@ -385,6 +385,8 @@
       onReminderDue: () => {},
       onReminderCleared: () => {},
       onPetNetworkBubble: () => {},
+      onPetChatBubble: () => {},
+      clearPetChatBubble: () => {},
       closePetNetworkBubble: () => {},
       onPetImageUpdated: () => {},
       onPetCharacterUpdated: () => {},
@@ -438,6 +440,8 @@
     let isPetHovered = false;
     let activeReminder = null;
     let activeNetworkBubble = null;
+    let activeChatBubble = null;
+    let chatBubbleTimer = null;
 
     function applyPetCharacter(character) {
       const petCharacter = petCharacters[character] || petCharacters.bubu;
@@ -484,6 +488,8 @@
     function hideReminderBubble() {
       activeReminder = null;
       activeNetworkBubble = null;
+      activeChatBubble = null;
+      clearTimeout(chatBubbleTimer);
       reminderBubble.classList.remove('show', 'attention', 'network-bubble');
       reminderTitle.textContent = '';
       reminderNote.textContent = '';
@@ -507,6 +513,39 @@
       reminderBubble.classList.add('show');
       playMomentaryState('waiting', 900);
       logInteraction('show-network-bubble', { source: payload.from?.clientId || 'server' });
+    }
+
+    function hideChatBubble() {
+      if (!activeChatBubble) return;
+      activeChatBubble = null;
+      clearTimeout(chatBubbleTimer);
+      reminderBubble.classList.remove('show', 'attention', 'network-bubble');
+      reminderTitle.textContent = '';
+      reminderNote.textContent = '';
+      reminderNote.classList.remove('show');
+      reminderTime.textContent = '';
+      reminderQueue.textContent = '';
+      setPetState('idle');
+    }
+
+    function showChatBubble(payload) {
+      if (!payload?.text || activeReminder) return;
+      activeChatBubble = payload;
+      activeNetworkBubble = null;
+      clearTimeout(chatBubbleTimer);
+      reminderBubble.classList.remove('network-bubble');
+      reminderTitle.textContent = payload.title || '小秘书';
+      reminderNote.textContent = payload.text;
+      reminderNote.classList.add('show');
+      reminderTime.textContent = payload.meta || '';
+      reminderQueue.textContent = '';
+      reminderBubble.classList.add('show');
+      playMomentaryState(payload.variant === 'final' ? 'waving' : 'review', 900);
+      logInteraction('show-chat-bubble', { variant: payload.variant || 'chat' });
+      chatBubbleTimer = setTimeout(() => {
+        if (activeReminder) return;
+        hideChatBubble();
+      }, payload.variant === 'final' ? 6500 : 2600);
     }
 
     function logInteraction(type, details = {}) {
@@ -787,6 +826,7 @@
     petAPI.onReminderDue(showReminderBubble);
     petAPI.onReminderCleared(hideReminderBubble);
     petAPI.onPetNetworkBubble(showNetworkBubble);
+    petAPI.onPetChatBubble(showChatBubble);
 
     async function loadSavedPetSize() {
       const size = await petAPI.storeGet('petSize') || 'medium';
