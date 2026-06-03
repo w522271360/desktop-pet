@@ -46,6 +46,7 @@
       "config-change-notifier.js",
       "vision-capabilities.js",
       "openai-compatible.js",
+      "deepseek-plugin.js",
       "generated-image-export.js",
       "conversation-history.js",
       "conversation-save-path.js",
@@ -64,6 +65,7 @@
       "store.js",
       "api-service.js",
       "package.json",
+      "sha3_wasm_bg.7b9ca65ddd.wasm",
       "renderer/**/*",
       "assets/bubu/**/*",
       "assets/yier/**/*",
@@ -77,6 +79,10 @@
       "!**/*.map"
     ],
     "extraResources": [
+      {
+        "from": "sha3_wasm_bg.7b9ca65ddd.wasm",
+        "to": "sha3_wasm_bg.7b9ca65ddd.wasm"
+      },
       {
         "from": "third_party/pi",
         "to": "pi",

@@ -2,6 +2,7 @@
 const axios = require('axios');
 const store = require('./store');
 const { supportsVision } = require('./vision-capabilities');
+const deepseekPlugin = require('./deepseek-plugin');
 const {
   resolveChatCompletionsUrl,
   resolveImagesUrl,
@@ -84,13 +85,24 @@ function logApiError(label, error) {
 }
 
 class APIService {
+  isDeepSeekPluginConfig(apiConfig) {
+    return apiConfig?.sourceType === 'plugin_deepseek' || apiConfig?.pluginId === 'deepseek';
+  }
+
   checkVisionSupport(apiConfig) {
+    if (this.isDeepSeekPluginConfig(apiConfig)) {
+      return false;
+    }
     return supportsVision(apiConfig);
   }
 
   async testConnection(apiConfig) {
-    const { apiUrl, apiKey, selectedModel } = apiConfig;
     try {
+      if (this.isDeepSeekPluginConfig(apiConfig)) {
+        return await deepseekPlugin.testConnection();
+      }
+
+      const { apiUrl, apiKey, selectedModel } = apiConfig;
       return await this.testOpenAICompatible(apiUrl, apiKey, selectedModel);
     } catch (error) {
       return { success: false, error: formatFriendlyError(error) };
@@ -227,8 +239,15 @@ class APIService {
   // 图片分析 - 使用当前激活的配置（支持截图和粘贴的图片）
   async analyzeImage(base64Image, prompt, mimeType = 'image/png') {
     const activeConfig = store.getActiveConfig();
+
+    if (this.isDeepSeekPluginConfig(activeConfig)) {
+      return {
+        success: false,
+        error: 'DeepSeek 插件当前只支持聊天，不支持图片分析。'
+      };
+    }
     
-    if (!activeConfig || !activeConfig.apiKey) {
+    if (!activeConfig || (!activeConfig.apiKey && !this.isDeepSeekPluginConfig(activeConfig))) {
       return {
         success: false,
         error: '汪汪~ 还没配置 API 呢！\n\n去设置页面添加一个吧~ 🔧'
@@ -270,6 +289,13 @@ class APIService {
 
   async generateImage(prompt, base64Image = null, mimeType = 'image/png') {
     const activeConfig = store.getActiveConfig();
+
+    if (this.isDeepSeekPluginConfig(activeConfig)) {
+      return {
+        success: false,
+        error: 'DeepSeek 插件当前只支持聊天，不支持图片生成。'
+      };
+    }
 
     if (!activeConfig || !activeConfig.apiKey) {
       return {
@@ -362,11 +388,27 @@ class APIService {
   async sendMessage(messages) {
     const activeConfig = store.getActiveConfig();
     
-    if (!activeConfig || !activeConfig.apiKey) {
+    if (!activeConfig || (!activeConfig.apiKey && !this.isDeepSeekPluginConfig(activeConfig))) {
       return {
         success: false,
         error: '汪~ 还没有 API 密钥呢！🔑\n\n去设置页面添加一个吧，我会等你回来的~'
       };
+    }
+
+    if (this.isDeepSeekPluginConfig(activeConfig)) {
+      try {
+        const result = await deepseekPlugin.chatCompletion(messages, activeConfig.selectedModel || 'deepseek-v4-flash');
+        return {
+          success: true,
+          content: result.content || result.reasoning || '',
+          model: `${activeConfig.name || 'DeepSeek'} (${activeConfig.selectedModel || 'deepseek-v4-flash'})`
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: formatFriendlyError(error.message)
+        };
+      }
     }
 
     return await this.callOpenAICompatible(messages, activeConfig);

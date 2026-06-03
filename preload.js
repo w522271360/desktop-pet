@@ -193,6 +193,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testApiConfig: async (apiConfig) => {
     return await ipcRenderer.invoke('test-api-config', { apiConfig });
   },
+
+  openDeepSeekLogin: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-open-login');
+  },
+
+  saveDeepSeekAuth: async (token) => {
+    return await ipcRenderer.invoke('deepseek-plugin-save-auth', { token });
+  },
+
+  getDeepSeekPluginState: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-get-state');
+  },
+
+  clearDeepSeekAuth: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-clear-auth');
+  },
   
   // Store 操作
   storeGet: async (key) => {

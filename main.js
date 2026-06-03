@@ -12,6 +12,7 @@ const { resolveConversationSavePath } = require('./conversation-save-path');
 const { createReminderManager } = require('./reminder-manager');
 const { getPortableRelaunchOptions } = require('./portable-restart');
 const { createPetNetworkClient } = require('./pet-network-client');
+const deepseekPlugin = require('./deepseek-plugin');
 
 const APP_NAME = '桌面小助手';
 app.setName(APP_NAME);
@@ -29,6 +30,7 @@ let chatWindowReady = false;
 let pendingExternalPaste = null;
 let settingsWindow = null;
 let screenshotSelectorWindow = null;
+let deepseekLoginWindow = null;
 let reminderCheckTimer = null;
 let activeReminderId = null;
 let isAppQuitting = false;
@@ -443,6 +445,49 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => {
     settingsWindow = null;
   });
+}
+
+function createDeepSeekLoginWindow() {
+  const deepSeekUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
+
+  if (deepseekLoginWindow) {
+    if (deepseekLoginWindow.isMinimized()) {
+      deepseekLoginWindow.restore();
+    }
+    deepseekLoginWindow.show();
+    deepseekLoginWindow.focus();
+    return deepseekLoginWindow;
+  }
+
+  deepseekLoginWindow = new BrowserWindow({
+    width: 1200,
+    height: 860,
+    title: 'DeepSeek 登录',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      partition: 'persist:deepseek-login'
+    }
+  });
+
+  deepseekLoginWindow.webContents.setUserAgent(deepSeekUserAgent);
+  deepseekLoginWindow.loadURL('https://chat.deepseek.com/sign_in', {
+    userAgent: deepSeekUserAgent,
+    extraHeaders: 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8\n'
+  });
+  deepseekLoginWindow.show();
+
+  deepseekLoginWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[deepseek-login] did-fail-load', errorCode, errorDescription);
+  });
+
+  deepseekLoginWindow.on('closed', () => {
+    deepseekLoginWindow = null;
+  });
+
+  return deepseekLoginWindow;
 }
 
 // 保存对话为Markdown
@@ -917,6 +962,34 @@ ipcMain.handle('select-directory', async (event, { defaultPath } = {}) => {
 // 测试 API 配置
 ipcMain.handle('test-api-config', async (event, { apiConfig }) => {
   return await apiService.testConnection(apiConfig);
+});
+
+ipcMain.handle('deepseek-plugin-open-login', () => {
+  createDeepSeekLoginWindow();
+  return { success: true };
+});
+
+ipcMain.handle('deepseek-plugin-save-auth', async (event, payload = {}) => {
+  if ((!payload.token || !String(payload.token).trim()) && (!deepseekLoginWindow || deepseekLoginWindow.isDestroyed())) {
+    return { success: false, error: 'DeepSeek 登录窗口不存在，请先打开登录窗口' };
+  }
+
+  try {
+    const state = payload.token
+      ? await deepseekPlugin.saveToken(payload.token)
+      : await deepseekPlugin.loginWithWindow(deepseekLoginWindow);
+    return { success: true, state };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('deepseek-plugin-get-state', () => {
+  return deepseekPlugin.getState();
+});
+
+ipcMain.handle('deepseek-plugin-clear-auth', () => {
+  return deepseekPlugin.clearAuth();
 });
 
 // 配置管理

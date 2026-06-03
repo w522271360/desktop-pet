@@ -13,6 +13,12 @@ const tabContents = document.querySelectorAll('.tab-content');
 // DOM元素 - API配置
 const configsContainer = document.getElementById('configs-container');
 const addConfigBtn = document.getElementById('add-config-btn');
+const deepseekPluginStatus = document.getElementById('deepseek-plugin-status');
+const deepseekLoginBtn = document.getElementById('deepseek-login-btn');
+const deepseekSaveAuthBtn = document.getElementById('deepseek-save-auth-btn');
+const deepseekClearAuthBtn = document.getElementById('deepseek-clear-auth-btn');
+const deepseekTokenInput = document.getElementById('deepseek-token-input');
+const deepseekTokenToggle = document.getElementById('deepseek-token-toggle');
 
 // DOM元素 - 提醒事项
 const remindersContainer = document.getElementById('reminders-container');
@@ -82,6 +88,9 @@ const configNameInput = document.getElementById('config-name');
 const providerTypeSelect = document.getElementById('provider-type');
 const apiUrlInput = document.getElementById('api-url');
 const apiKeyInput = document.getElementById('api-key');
+const apiUrlGroup = document.getElementById('api-url-group');
+const apiKeyGroup = document.getElementById('api-key-group');
+const deepseekPluginNote = document.getElementById('deepseek-plugin-note');
 const modelSelect = document.getElementById('model-select');
 const modelInfo = document.getElementById('model-info');
 const enabledCheckbox = document.getElementById('enabled-checkbox');
@@ -119,6 +128,7 @@ async function initialize() {
   try {
     appConfig = await window.electronAPI.getConfig();
     await loadConfigs();
+    await loadDeepSeekPluginState();
   } catch (error) {
     showToast(`❌ API 配置加载失败：${error.message}`, 'error');
   }
@@ -182,13 +192,18 @@ function createConfigCard(config, isActive) {
     
     <div class="card-content">
       <div class="card-field">
+        <span class="field-label">配置来源</span>
+        <div class="field-value">${config.sourceType === 'plugin_deepseek' ? 'DeepSeek 插件' : '自定义 API'}</div>
+      </div>
+
+      <div class="card-field">
         <span class="field-label">API 地址</span>
-        <div class="field-value">${config.apiUrl}</div>
+        <div class="field-value">${config.sourceType === 'plugin_deepseek' ? '由插件管理' : config.apiUrl}</div>
       </div>
       
       <div class="card-field">
         <span class="field-label">API 密钥</span>
-        <div class="field-value masked">${config.apiKey ? '••••••••••••••••' : '未配置'}</div>
+        <div class="field-value masked">${config.sourceType === 'plugin_deepseek' ? '插件登录信息' : (config.apiKey ? '••••••••••••••••' : '未配置')}</div>
       </div>
       
       <div class="card-field">
@@ -379,6 +394,21 @@ async function loadNetworkSettings() {
   renderNetworkState(await window.electronAPI.getPetNetworkState?.());
 }
 
+async function loadDeepSeekPluginState() {
+  const state = await window.electronAPI.getDeepSeekPluginState?.();
+  if (!state || !deepseekPluginStatus) return;
+
+  deepseekPluginStatus.textContent = state.hasToken
+    ? `已登录${state.accountLabel ? ` · ${state.accountLabel}` : ''}`
+    : '未登录';
+  deepseekPluginStatus.classList.toggle('active', state.enabled && state.hasToken);
+  deepseekPluginStatus.classList.toggle('error', !state.hasToken && state.enabled);
+  if (deepseekTokenInput && state.hasToken) {
+    deepseekTokenInput.value = '';
+    deepseekTokenInput.placeholder = '已保存 token，如需更换可直接粘贴新 token';
+  }
+}
+
 async function saveNetworkSettings({ connect = false } = {}) {
   const mode = networkModeBtn?.classList.contains('active') ? 'network' : 'personal';
   const state = await window.electronAPI.updatePetNetworkConfig({
@@ -500,6 +530,46 @@ function bindEvents() {
   // 添加配置
   addConfigBtn?.addEventListener('click', () => {
     openModal();
+  });
+
+  deepseekLoginBtn?.addEventListener('click', async () => {
+    const result = await window.electronAPI.openDeepSeekLogin();
+    if (!result?.success) {
+      showToast(`❌ ${result?.error || '无法打开登录页'}`, 'error');
+      return;
+    }
+    showToast('🌐 已打开 DeepSeek 内嵌登录页', 'success');
+  });
+
+  deepseekSaveAuthBtn?.addEventListener('click', async () => {
+    const token = deepseekTokenInput?.value.trim() || '';
+    const result = await window.electronAPI.saveDeepSeekAuth(token);
+    if (result.success) {
+      if (deepseekTokenInput) {
+        deepseekTokenInput.value = '';
+      }
+      await loadDeepSeekPluginState();
+      showToast(token ? '✅ DeepSeek Token 校验通过并已保存' : '✅ DeepSeek 登录信息已保存', 'success');
+    } else {
+      showToast(`❌ ${result.error}`, 'error');
+    }
+  });
+
+  deepseekClearAuthBtn?.addEventListener('click', async () => {
+    const state = await window.electronAPI.clearDeepSeekAuth();
+    if (deepseekTokenInput) {
+      deepseekTokenInput.value = '';
+      deepseekTokenInput.placeholder = '粘贴 chat.deepseek.com 的 userToken';
+    }
+    await loadDeepSeekPluginState();
+    showToast(state?.hasToken ? '✅ DeepSeek 登录信息已清除' : '✅ DeepSeek 登录信息已清除', 'success');
+  });
+
+  deepseekTokenToggle?.addEventListener('click', () => {
+    if (!deepseekTokenInput) return;
+    const isPassword = deepseekTokenInput.type === 'password';
+    deepseekTokenInput.type = isPassword ? 'text' : 'password';
+    deepseekTokenToggle.textContent = isPassword ? '🙈' : '👁️';
   });
 
   addReminderBtn?.addEventListener('click', () => {
@@ -889,13 +959,14 @@ async function deleteReminder(id) {
 // 打开模态框
 function openModal(config = null) {
   editingConfigId = config?.id || null;
+  const sourceType = config?.sourceType || 'custom';
   
   if (config) {
     modalTitle.textContent = '编辑配置';
     configNameInput.value = config.name;
-    providerTypeSelect.value = 'custom';
-    apiUrlInput.value = config.apiUrl;
-    apiKeyInput.value = config.apiKey;
+    providerTypeSelect.value = sourceType === 'plugin_deepseek' ? 'deepseek' : 'custom';
+    apiUrlInput.value = config.apiUrl || '';
+    apiKeyInput.value = config.apiKey || '';
     modelSelect.value = config.selectedModel || '';
     enabledCheckbox.checked = config.enabled !== false;
   } else {
@@ -908,6 +979,7 @@ function openModal(config = null) {
     enabledCheckbox.checked = true;
   }
   
+  applyProviderFormMode();
   modelInfo.classList.remove('show');
   testResult.classList.add('hidden');
   modal.classList.remove('hidden');
@@ -921,11 +993,28 @@ function closeModal() {
 
 // 提供商类型变化
 function onProviderTypeChange() {
+  applyProviderFormMode();
   const template = appConfig.providerTemplates.custom;
-  if (!editingConfigId || !apiUrlInput.value.trim()) {
+  if (providerTypeSelect.value === 'custom' && (!editingConfigId || !apiUrlInput.value.trim())) {
     apiUrlInput.value = template.defaultApiUrl;
   }
+  if (providerTypeSelect.value === 'deepseek' && !editingConfigId) {
+    modelSelect.value = 'deepseek-v4-flash';
+  }
   onModelChange();
+}
+
+function applyProviderFormMode() {
+  const isDeepSeek = providerTypeSelect?.value === 'deepseek';
+  apiUrlGroup?.classList.toggle('hidden', isDeepSeek);
+  apiKeyGroup?.classList.toggle('hidden', isDeepSeek);
+  if (apiUrlInput) apiUrlInput.required = !isDeepSeek;
+  if (apiKeyInput) apiKeyInput.required = !isDeepSeek;
+  if (deepseekPluginNote) {
+    deepseekPluginNote.textContent = isDeepSeek
+      ? 'DeepSeek 插件会使用你网页登录保存的认证信息。'
+      : '选择 DeepSeek 插件后，这两项会自动隐藏。';
+  }
 }
 
 // 模型选择变化
@@ -941,14 +1030,22 @@ function getSelectedModel() {
 // 测试当前配置
 async function testCurrentConfig() {
   const selectedModel = getSelectedModel();
+  const isDeepSeek = providerTypeSelect.value === 'deepseek';
   const config = {
-    provider: providerTypeSelect.value || 'custom',
-    apiUrl: apiUrlInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
+    provider: isDeepSeek ? 'deepseek' : (providerTypeSelect.value || 'custom'),
+    sourceType: isDeepSeek ? 'plugin_deepseek' : 'custom_openai',
+    pluginId: isDeepSeek ? 'deepseek' : null,
+    apiUrl: isDeepSeek ? '' : apiUrlInput.value.trim(),
+    apiKey: isDeepSeek ? '' : apiKeyInput.value.trim(),
     selectedModel: selectedModel
   };
   
-  if (!config.provider || !config.apiUrl || !config.apiKey) {
+  if (!config.provider) {
+    showTestResult(false, '📝 请先选择配置来源~');
+    return;
+  }
+
+  if (!isDeepSeek && (!config.apiUrl || !config.apiKey)) {
     showTestResult(false, '📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！');
     return;
   }
@@ -987,16 +1084,24 @@ function showTestResult(success, message) {
 // 保存当前配置
 async function saveCurrentConfig() {
   const selectedModel = getSelectedModel();
+  const isDeepSeek = providerTypeSelect.value === 'deepseek';
   const config = {
     name: configNameInput.value.trim(),
-    provider: providerTypeSelect.value || 'custom',
-    apiUrl: apiUrlInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
+    provider: isDeepSeek ? 'deepseek' : (providerTypeSelect.value || 'custom'),
+    sourceType: isDeepSeek ? 'plugin_deepseek' : 'custom_openai',
+    pluginId: isDeepSeek ? 'deepseek' : null,
+    apiUrl: isDeepSeek ? '' : apiUrlInput.value.trim(),
+    apiKey: isDeepSeek ? '' : apiKeyInput.value.trim(),
     selectedModel: selectedModel,
     enabled: enabledCheckbox.checked
   };
   
-  if (!config.name || !config.provider || !config.apiUrl || !config.apiKey) {
+  if (!config.name || !config.provider) {
+    showToast('📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！', 'info');
+    return;
+  }
+
+  if (!isDeepSeek && (!config.apiUrl || !config.apiKey)) {
     showToast('📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！', 'info');
     return;
   }

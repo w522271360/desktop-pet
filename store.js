@@ -31,6 +31,14 @@ const defaults = {
   petChatBubbleEnabled: false,
   reminders: [],
   apiConfigs: [],
+  plugins: {
+    deepseek: {
+      enabled: false,
+      token: '',
+      accountLabel: '',
+      lastLoginAt: null
+    }
+  },
   activeConfigId: null
 };
 
