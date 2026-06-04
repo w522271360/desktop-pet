@@ -6,6 +6,7 @@ const screenshotBtn = document.getElementById('screenshot-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const quickNewConversationBtn = document.getElementById('quick-new-conversation-btn');
 const networkChatToggleBtn = document.getElementById('network-chat-toggle-btn');
+const toolbarRight = document.querySelector('.toolbar-right');
 const historyToggleBtn = document.getElementById('history-toggle-btn');
 const historyCloseBtn = document.getElementById('history-close-btn');
 const historySidebar = document.getElementById('history-sidebar');
@@ -55,6 +56,7 @@ let pendingImageAttachment = null;
 let assistantNickname = '小秘书';
 let userDisplayName = '主人';
 let petNetworkState = { status: 'disabled', users: [] };
+let codexControlButton = null;
 
 // 生成控制
 let isGenerating = false;
@@ -75,6 +77,8 @@ let programmaticScroll = false; // 标记是否是程序触发的滚动
 // 初始化
 async function initializeApp() {
   appConfig = await window.electronAPI.getConfig();
+  ensureCodexControlButton();
+  await loadCodexControlPluginState();
   await loadConfigs();
   
   // 加载并应用主题
@@ -106,7 +110,43 @@ async function initializeApp() {
   
   // 初始化快捷模板
   await initializeTemplates();
+  window.electronAPI.onCodexControlPluginStateChanged?.(renderCodexControlButton);
   
+}
+
+function ensureCodexControlButton() {
+  if (codexControlButton || !toolbarRight) return codexControlButton;
+
+  codexControlButton = document.createElement('button');
+  codexControlButton.id = 'codex-control-btn';
+  codexControlButton.className = 'toolbar-action-btn hidden';
+  codexControlButton.type = 'button';
+  codexControlButton.title = 'Codex 操控台';
+  codexControlButton.innerHTML = `
+    <span class="toolbar-action-icon">⌘</span>
+    <span>操控台</span>
+  `;
+  codexControlButton.addEventListener('click', () => window.electronAPI.openCodexControl());
+
+  const anchor = historyToggleBtn || settingsBtn;
+  toolbarRight.insertBefore(codexControlButton, anchor);
+  return codexControlButton;
+}
+
+function renderCodexControlButton(state = {}) {
+  const button = ensureCodexControlButton();
+  if (!button) return;
+
+  const enabled = state.enabled === true;
+  button.classList.toggle('hidden', !enabled);
+  button.title = enabled
+    ? (state.appServerWsUrl ? `Codex 操控台 · ${state.appServerWsUrl}` : 'Codex 操控台')
+    : '启用 Codex 操控插件后显示';
+}
+
+async function loadCodexControlPluginState() {
+  const state = await window.electronAPI.getCodexControlPluginState?.();
+  renderCodexControlButton(state || {});
 }
 
 function deriveConversationTitle(question) {

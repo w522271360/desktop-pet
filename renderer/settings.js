@@ -13,6 +13,7 @@ const tabContents = document.querySelectorAll('.tab-content');
 // DOM元素 - API配置
 const configsContainer = document.getElementById('configs-container');
 const addConfigBtn = document.getElementById('add-config-btn');
+const pluginsTabBody = document.querySelector('#plugins-tab .tab-body');
 const deepseekPluginStatus = document.getElementById('deepseek-plugin-status');
 const deepseekLoginBtn = document.getElementById('deepseek-login-btn');
 const deepseekSaveAuthBtn = document.getElementById('deepseek-save-auth-btn');
@@ -98,6 +99,11 @@ const testConfigBtn = document.getElementById('test-config-btn');
 const saveConfigBtn = document.getElementById('save-config-btn');
 const testResult = document.getElementById('test-result');
 const toast = document.getElementById('toast');
+let codexControlPluginStatus = null;
+let codexControlPluginEnabled = null;
+let codexControlPluginWsInput = null;
+let codexControlPluginSaveBtn = null;
+let codexControlPluginOpenBtn = null;
 
 // 标签页切换功能
 function switchTab(tabName) {
@@ -123,12 +129,60 @@ navItems.forEach(item => {
   });
 });
 
+function ensureCodexControlPluginCard() {
+  if (!pluginsTabBody || codexControlPluginStatus) return;
+
+  const section = document.createElement('div');
+  section.className = 'settings-section plugin-section';
+  section.innerHTML = `
+    <h3>Codex 操控</h3>
+    <div class="plugin-card">
+      <div class="plugin-card-header">
+        <div>
+          <strong>app-server 轻量操控台</strong>
+          <p>开启后会在主聊天窗口显示“操控台”按钮，用轻量页面直接管理 Codex 会话。</p>
+        </div>
+        <span id="codex-control-plugin-status" class="plugin-status">未启用</span>
+      </div>
+      <div class="setting-item inline">
+        <div class="setting-info">
+          <label>启用插件</label>
+          <p class="setting-desc">关闭时聊天窗口不显示操控台入口。</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="codex-control-plugin-enabled">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>app-server WS 地址</label>
+        <input type="text" id="codex-control-plugin-ws" placeholder="ws://127.0.0.1:9000 or wss://your-host/app-server">
+        <p class="field-note">操控台会直接连接该地址，读取会话、加载历史并继续发送消息。</p>
+      </div>
+      <div class="action-bar">
+        <button id="codex-control-plugin-save-btn" class="primary-btn" type="button">保存插件配置</button>
+        <button id="codex-control-plugin-open-btn" class="secondary-btn" type="button">打开操控台</button>
+      </div>
+    </div>
+  `;
+
+  pluginsTabBody.appendChild(section);
+
+  codexControlPluginStatus = document.getElementById('codex-control-plugin-status');
+  codexControlPluginEnabled = document.getElementById('codex-control-plugin-enabled');
+  codexControlPluginWsInput = document.getElementById('codex-control-plugin-ws');
+  codexControlPluginSaveBtn = document.getElementById('codex-control-plugin-save-btn');
+  codexControlPluginOpenBtn = document.getElementById('codex-control-plugin-open-btn');
+}
+
 // 初始化
 async function initialize() {
+  ensureCodexControlPluginCard();
   try {
     appConfig = await window.electronAPI.getConfig();
     await loadConfigs();
     await loadDeepSeekPluginState();
+    await loadCodexControlPluginState();
   } catch (error) {
     showToast(`❌ API 配置加载失败：${error.message}`, 'error');
   }
@@ -409,6 +463,31 @@ async function loadDeepSeekPluginState() {
   }
 }
 
+async function loadCodexControlPluginState() {
+  ensureCodexControlPluginCard();
+  const state = await window.electronAPI.getCodexControlPluginState?.();
+  if (!state || !codexControlPluginStatus) return;
+
+  codexControlPluginEnabled.checked = state.enabled === true;
+  codexControlPluginWsInput.value = state.appServerWsUrl || '';
+  codexControlPluginStatus.textContent = state.enabled
+    ? (state.appServerWsUrl ? '已启用 · 已配置 WS' : '已启用 · 待配置 WS')
+    : '未启用';
+  codexControlPluginStatus.classList.toggle('active', state.enabled === true);
+  codexControlPluginStatus.classList.toggle('error', state.enabled === true && !state.appServerWsUrl);
+}
+
+function renderCodexControlButtonStateFromEvent(state = {}) {
+  if (!codexControlPluginStatus) return;
+  codexControlPluginEnabled.checked = state.enabled === true;
+  codexControlPluginWsInput.value = state.appServerWsUrl || '';
+  codexControlPluginStatus.textContent = state.enabled
+    ? (state.appServerWsUrl ? '已启用 · 已配置 WS' : '已启用 · 待配置 WS')
+    : '未启用';
+  codexControlPluginStatus.classList.toggle('active', state.enabled === true);
+  codexControlPluginStatus.classList.toggle('error', state.enabled === true && !state.appServerWsUrl);
+}
+
 async function saveNetworkSettings({ connect = false } = {}) {
   const mode = networkModeBtn?.classList.contains('active') ? 'network' : 'personal';
   const state = await window.electronAPI.updatePetNetworkConfig({
@@ -570,6 +649,24 @@ function bindEvents() {
     const isPassword = deepseekTokenInput.type === 'password';
     deepseekTokenInput.type = isPassword ? 'text' : 'password';
     deepseekTokenToggle.textContent = isPassword ? '🙈' : '👁️';
+  });
+
+  codexControlPluginSaveBtn?.addEventListener('click', async () => {
+    const state = await window.electronAPI.saveCodexControlPluginState({
+      enabled: codexControlPluginEnabled?.checked === true,
+      appServerWsUrl: codexControlPluginWsInput?.value.trim() || ''
+    });
+    await loadCodexControlPluginState();
+    showToast(
+      state.enabled
+        ? '✅ Codex 操控插件已启用'
+        : '⏹️ Codex 操控插件已关闭',
+      'success'
+    );
+  });
+
+  codexControlPluginOpenBtn?.addEventListener('click', () => {
+    window.electronAPI.openCodexControl();
   });
 
   addReminderBtn?.addEventListener('click', () => {
@@ -790,6 +887,7 @@ function bindEvents() {
   });
 
   window.electronAPI.onPetNetworkStateChanged?.(renderNetworkState);
+  window.electronAPI.onCodexControlPluginStateChanged?.(renderCodexControlButtonStateFromEvent);
   // 夜间模式切换
   darkModeToggle?.addEventListener('change', async () => {
     const isDarkMode = darkModeToggle.checked;

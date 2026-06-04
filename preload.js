@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSettings: () => {
     ipcRenderer.send('open-settings');
   },
+
+  openCodexControl: () => {
+    ipcRenderer.send('open-codex-control');
+  },
   
   // 退出应用
   quitApp: () => {
@@ -208,6 +212,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   clearDeepSeekAuth: async () => {
     return await ipcRenderer.invoke('deepseek-plugin-clear-auth');
+  },
+
+  getCodexControlPluginState: async () => {
+    return await ipcRenderer.invoke('codex-control-plugin-get-state');
+  },
+
+  saveCodexControlPluginState: async (payload) => {
+    return await ipcRenderer.invoke('codex-control-plugin-save-state', payload);
+  },
+
+  onCodexControlPluginStateChanged: (callback) => {
+    ipcRenderer.on('codex-control-plugin-state-changed', (event, payload) => callback(payload));
+  },
+
+  connectCodexAppServer: async () => {
+    return await ipcRenderer.invoke('codex-control-app-server-connect');
+  },
+
+  requestCodexAppServer: async (method, params, timeoutMs) => {
+    return await ipcRenderer.invoke('codex-control-app-server-request', { method, params, timeoutMs });
+  },
+
+  disconnectCodexAppServer: async () => {
+    return await ipcRenderer.invoke('codex-control-app-server-disconnect');
+  },
+
+  onCodexAppServerEvent: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('codex-control-app-server-event', listener);
+    return () => ipcRenderer.removeListener('codex-control-app-server-event', listener);
+  },
+
+  onCodexAppServerStatus: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('codex-control-app-server-status', listener);
+    return () => ipcRenderer.removeListener('codex-control-app-server-status', listener);
   },
   
   // Store 操作
