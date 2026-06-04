@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSettings: () => {
     ipcRenderer.send('open-settings');
   },
+
+  openCodexControl: () => {
+    ipcRenderer.send('open-codex-control');
+  },
   
   // 退出应用
   quitApp: () => {
@@ -67,6 +71,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // AI 对话
   sendMessage: async (messages) => {
     return await ipcRenderer.invoke('send-message', { messages });
+  },
+
+  sendPiAgentMessage: async (payload) => {
+    return await ipcRenderer.invoke('send-pi-agent-message', payload);
+  },
+
+  cancelPiAgentMessage: async (requestId) => {
+    return await ipcRenderer.invoke('cancel-pi-agent-message', { requestId });
+  },
+
+  getPiAgentStatus: async () => {
+    return await ipcRenderer.invoke('get-pi-agent-status');
+  },
+
+  onPiAgentEvent: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('pi-agent-event', listener);
+    return () => ipcRenderer.removeListener('pi-agent-event', listener);
   },
   
   // 保存对话
@@ -134,6 +156,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveGeneratedImage: async (image) => {
     return await ipcRenderer.invoke('save-generated-image', { image });
   },
+
+  selectDirectory: async (defaultPath) => {
+    return await ipcRenderer.invoke('select-directory', { defaultPath });
+  },
   
   // API 配置管理
   getConfig: async () => {
@@ -170,6 +196,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   testApiConfig: async (apiConfig) => {
     return await ipcRenderer.invoke('test-api-config', { apiConfig });
+  },
+
+  openDeepSeekLogin: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-open-login');
+  },
+
+  saveDeepSeekAuth: async (token) => {
+    return await ipcRenderer.invoke('deepseek-plugin-save-auth', { token });
+  },
+
+  getDeepSeekPluginState: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-get-state');
+  },
+
+  clearDeepSeekAuth: async () => {
+    return await ipcRenderer.invoke('deepseek-plugin-clear-auth');
+  },
+
+  getCodexControlPluginState: async () => {
+    return await ipcRenderer.invoke('codex-control-plugin-get-state');
+  },
+
+  saveCodexControlPluginState: async (payload) => {
+    return await ipcRenderer.invoke('codex-control-plugin-save-state', payload);
+  },
+
+  onCodexControlPluginStateChanged: (callback) => {
+    ipcRenderer.on('codex-control-plugin-state-changed', (event, payload) => callback(payload));
+  },
+
+  connectCodexAppServer: async () => {
+    return await ipcRenderer.invoke('codex-control-app-server-connect');
+  },
+
+  requestCodexAppServer: async (method, params, timeoutMs) => {
+    return await ipcRenderer.invoke('codex-control-app-server-request', { method, params, timeoutMs });
+  },
+
+  disconnectCodexAppServer: async () => {
+    return await ipcRenderer.invoke('codex-control-app-server-disconnect');
+  },
+
+  onCodexAppServerEvent: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('codex-control-app-server-event', listener);
+    return () => ipcRenderer.removeListener('codex-control-app-server-event', listener);
+  },
+
+  onCodexAppServerStatus: (callback) => {
+    const listener = (event, payload) => callback(payload);
+    ipcRenderer.on('codex-control-app-server-status', listener);
+    return () => ipcRenderer.removeListener('codex-control-app-server-status', listener);
   },
   
   // Store 操作
@@ -304,6 +382,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onPetNetworkBubble: (callback) => {
     ipcRenderer.on('pet-network-bubble', (event, payload) => callback(payload));
+  },
+  sendPetChatBubble: (payload) => {
+    ipcRenderer.send('pet-chat-bubble', payload);
+  },
+  clearPetChatBubble: () => {
+    ipcRenderer.send('pet-chat-bubble-clear');
+  },
+  onPetChatBubble: (callback) => {
+    ipcRenderer.on('pet-chat-bubble', (event, payload) => callback(payload));
   },
   
   // ========== 主题相关 API ==========

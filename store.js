@@ -27,8 +27,23 @@ const defaults = {
   petNetworkClientToken: '',
   petNetworkClientId: '',
   petNetworkNickname: '',
+  agentModeEnabled: false,
+  petChatBubbleEnabled: false,
   reminders: [],
   apiConfigs: [],
+  plugins: {
+    deepseek: {
+      enabled: false,
+      token: '',
+      accountLabel: '',
+      lastLoginAt: null
+    },
+    codexControl: {
+      enabled: false,
+      appServerWsUrl: '',
+      updatedAt: null
+    }
+  },
   activeConfigId: null
 };
 
@@ -135,12 +150,27 @@ function findLegacyConversationRecords() {
 
 function readConfig() {
   const configPath = getConfigPath();
-  return { ...defaults, ...readJsonFile(configPath, {}) };
+  const storedConfig = readJsonFile(configPath, {});
+  return {
+    ...defaults,
+    ...storedConfig,
+    plugins: {
+      ...defaults.plugins,
+      ...(storedConfig.plugins || {})
+    }
+  };
 }
 
 function writeConfig(config) {
   const configPath = getConfigPath();
-  writeJsonFile(configPath, { ...defaults, ...config });
+  writeJsonFile(configPath, {
+    ...defaults,
+    ...config,
+    plugins: {
+      ...defaults.plugins,
+      ...(config.plugins || {})
+    }
+  });
 }
 
 function initializeWorkDirectoryFiles() {

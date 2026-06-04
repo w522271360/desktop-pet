@@ -1,4 +1,4 @@
-// 设置页面 - 侧边栏导航版本
+﻿// 设置页面 - 侧边栏导航版本
 let appConfig = null;
 let apiConfigs = [];
 let editingConfigId = null;
@@ -13,6 +13,13 @@ const tabContents = document.querySelectorAll('.tab-content');
 // DOM元素 - API配置
 const configsContainer = document.getElementById('configs-container');
 const addConfigBtn = document.getElementById('add-config-btn');
+const pluginsTabBody = document.querySelector('#plugins-tab .tab-body');
+const deepseekPluginStatus = document.getElementById('deepseek-plugin-status');
+const deepseekLoginBtn = document.getElementById('deepseek-login-btn');
+const deepseekSaveAuthBtn = document.getElementById('deepseek-save-auth-btn');
+const deepseekClearAuthBtn = document.getElementById('deepseek-clear-auth-btn');
+const deepseekTokenInput = document.getElementById('deepseek-token-input');
+const deepseekTokenToggle = document.getElementById('deepseek-token-toggle');
 
 // DOM元素 - 提醒事项
 const remindersContainer = document.getElementById('reminders-container');
@@ -50,6 +57,11 @@ const fontSizeSelect = document.getElementById('font-size');
 // DOM元素 - 对话设置
 const autoOpenChatCheckbox = document.getElementById('auto-open-chat');
 const saveHistoryCheckbox = document.getElementById('save-history');
+const agentModeEnabledCheckbox = document.getElementById('agent-mode-enabled');
+const petChatBubbleEnabledCheckbox = document.getElementById('pet-chat-bubble-enabled');
+const agentWorkDirectoryInput = document.getElementById('agent-work-directory');
+const agentWorkDirectoryBrowseBtn = document.getElementById('agent-work-directory-browse');
+const agentWorkDirectoryClearBtn = document.getElementById('agent-work-directory-clear');
 const assistantNicknameInput = document.getElementById('assistant-nickname');
 const userDisplayNameInput = document.getElementById('user-display-name');
 
@@ -77,6 +89,9 @@ const configNameInput = document.getElementById('config-name');
 const providerTypeSelect = document.getElementById('provider-type');
 const apiUrlInput = document.getElementById('api-url');
 const apiKeyInput = document.getElementById('api-key');
+const apiUrlGroup = document.getElementById('api-url-group');
+const apiKeyGroup = document.getElementById('api-key-group');
+const deepseekPluginNote = document.getElementById('deepseek-plugin-note');
 const modelSelect = document.getElementById('model-select');
 const modelInfo = document.getElementById('model-info');
 const enabledCheckbox = document.getElementById('enabled-checkbox');
@@ -84,6 +99,11 @@ const testConfigBtn = document.getElementById('test-config-btn');
 const saveConfigBtn = document.getElementById('save-config-btn');
 const testResult = document.getElementById('test-result');
 const toast = document.getElementById('toast');
+let codexControlPluginStatus = null;
+let codexControlPluginEnabled = null;
+let codexControlPluginWsInput = null;
+let codexControlPluginSaveBtn = null;
+let codexControlPluginOpenBtn = null;
 
 // 标签页切换功能
 function switchTab(tabName) {
@@ -109,11 +129,60 @@ navItems.forEach(item => {
   });
 });
 
+function ensureCodexControlPluginCard() {
+  if (!pluginsTabBody || codexControlPluginStatus) return;
+
+  const section = document.createElement('div');
+  section.className = 'settings-section plugin-section';
+  section.innerHTML = `
+    <h3>Codex 操控</h3>
+    <div class="plugin-card">
+      <div class="plugin-card-header">
+        <div>
+          <strong>app-server 轻量操控台</strong>
+          <p>开启后会在主聊天窗口显示“操控台”按钮，用轻量页面直接管理 Codex 会话。</p>
+        </div>
+        <span id="codex-control-plugin-status" class="plugin-status">未启用</span>
+      </div>
+      <div class="setting-item inline">
+        <div class="setting-info">
+          <label>启用插件</label>
+          <p class="setting-desc">关闭时聊天窗口不显示操控台入口。</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="codex-control-plugin-enabled">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>app-server WS 地址</label>
+        <input type="text" id="codex-control-plugin-ws" placeholder="ws://127.0.0.1:9000 or wss://your-host/app-server">
+        <p class="field-note">操控台会直接连接该地址，读取会话、加载历史并继续发送消息。</p>
+      </div>
+      <div class="action-bar">
+        <button id="codex-control-plugin-save-btn" class="primary-btn" type="button">保存插件配置</button>
+        <button id="codex-control-plugin-open-btn" class="secondary-btn" type="button">打开操控台</button>
+      </div>
+    </div>
+  `;
+
+  pluginsTabBody.appendChild(section);
+
+  codexControlPluginStatus = document.getElementById('codex-control-plugin-status');
+  codexControlPluginEnabled = document.getElementById('codex-control-plugin-enabled');
+  codexControlPluginWsInput = document.getElementById('codex-control-plugin-ws');
+  codexControlPluginSaveBtn = document.getElementById('codex-control-plugin-save-btn');
+  codexControlPluginOpenBtn = document.getElementById('codex-control-plugin-open-btn');
+}
+
 // 初始化
 async function initialize() {
+  ensureCodexControlPluginCard();
   try {
     appConfig = await window.electronAPI.getConfig();
     await loadConfigs();
+    await loadDeepSeekPluginState();
+    await loadCodexControlPluginState();
   } catch (error) {
     showToast(`❌ API 配置加载失败：${error.message}`, 'error');
   }
@@ -177,13 +246,18 @@ function createConfigCard(config, isActive) {
     
     <div class="card-content">
       <div class="card-field">
+        <span class="field-label">配置来源</span>
+        <div class="field-value">${config.sourceType === 'plugin_deepseek' ? 'DeepSeek 插件' : '自定义 API'}</div>
+      </div>
+
+      <div class="card-field">
         <span class="field-label">API 地址</span>
-        <div class="field-value">${config.apiUrl}</div>
+        <div class="field-value">${config.sourceType === 'plugin_deepseek' ? '由插件管理' : config.apiUrl}</div>
       </div>
       
       <div class="card-field">
         <span class="field-label">API 密钥</span>
-        <div class="field-value masked">${config.apiKey ? '••••••••••••••••' : '未配置'}</div>
+        <div class="field-value masked">${config.sourceType === 'plugin_deepseek' ? '插件登录信息' : (config.apiKey ? '••••••••••••••••' : '未配置')}</div>
       </div>
       
       <div class="card-field">
@@ -374,6 +448,46 @@ async function loadNetworkSettings() {
   renderNetworkState(await window.electronAPI.getPetNetworkState?.());
 }
 
+async function loadDeepSeekPluginState() {
+  const state = await window.electronAPI.getDeepSeekPluginState?.();
+  if (!state || !deepseekPluginStatus) return;
+
+  deepseekPluginStatus.textContent = state.hasToken
+    ? `已登录${state.accountLabel ? ` · ${state.accountLabel}` : ''}`
+    : '未登录';
+  deepseekPluginStatus.classList.toggle('active', state.enabled && state.hasToken);
+  deepseekPluginStatus.classList.toggle('error', !state.hasToken && state.enabled);
+  if (deepseekTokenInput && state.hasToken) {
+    deepseekTokenInput.value = '';
+    deepseekTokenInput.placeholder = '已保存 token，如需更换可直接粘贴新 token';
+  }
+}
+
+async function loadCodexControlPluginState() {
+  ensureCodexControlPluginCard();
+  const state = await window.electronAPI.getCodexControlPluginState?.();
+  if (!state || !codexControlPluginStatus) return;
+
+  codexControlPluginEnabled.checked = state.enabled === true;
+  codexControlPluginWsInput.value = state.appServerWsUrl || '';
+  codexControlPluginStatus.textContent = state.enabled
+    ? (state.appServerWsUrl ? '已启用 · 已配置 WS' : '已启用 · 待配置 WS')
+    : '未启用';
+  codexControlPluginStatus.classList.toggle('active', state.enabled === true);
+  codexControlPluginStatus.classList.toggle('error', state.enabled === true && !state.appServerWsUrl);
+}
+
+function renderCodexControlButtonStateFromEvent(state = {}) {
+  if (!codexControlPluginStatus) return;
+  codexControlPluginEnabled.checked = state.enabled === true;
+  codexControlPluginWsInput.value = state.appServerWsUrl || '';
+  codexControlPluginStatus.textContent = state.enabled
+    ? (state.appServerWsUrl ? '已启用 · 已配置 WS' : '已启用 · 待配置 WS')
+    : '未启用';
+  codexControlPluginStatus.classList.toggle('active', state.enabled === true);
+  codexControlPluginStatus.classList.toggle('error', state.enabled === true && !state.appServerWsUrl);
+}
+
 async function saveNetworkSettings({ connect = false } = {}) {
   const mode = networkModeBtn?.classList.contains('active') ? 'network' : 'personal';
   const state = await window.electronAPI.updatePetNetworkConfig({
@@ -415,6 +529,21 @@ async function loadChatSettings() {
   const saveHistory = await window.electronAPI.storeGet('saveHistory');
   if (saveHistoryCheckbox) {
     saveHistoryCheckbox.checked = saveHistory !== false; // 默认开启
+  }
+
+  const agentModeEnabled = await window.electronAPI.storeGet('agentModeEnabled');
+  if (agentModeEnabledCheckbox) {
+    agentModeEnabledCheckbox.checked = agentModeEnabled === true;
+  }
+
+  const petChatBubbleEnabled = await window.electronAPI.storeGet('petChatBubbleEnabled');
+  if (petChatBubbleEnabledCheckbox) {
+    petChatBubbleEnabledCheckbox.checked = petChatBubbleEnabled === true;
+  }
+
+  const agentWorkDirectory = await window.electronAPI.storeGet('agentWorkDirectory');
+  if (agentWorkDirectoryInput) {
+    agentWorkDirectoryInput.value = typeof agentWorkDirectory === 'string' ? agentWorkDirectory : '';
   }
 
   const assistantNickname = await window.electronAPI.storeGet('assistantNickname') || '小秘书';
@@ -480,6 +609,64 @@ function bindEvents() {
   // 添加配置
   addConfigBtn?.addEventListener('click', () => {
     openModal();
+  });
+
+  deepseekLoginBtn?.addEventListener('click', async () => {
+    const result = await window.electronAPI.openDeepSeekLogin();
+    if (!result?.success) {
+      showToast(`❌ ${result?.error || '无法打开登录页'}`, 'error');
+      return;
+    }
+    showToast('🌐 已打开 DeepSeek 内嵌登录页', 'success');
+  });
+
+  deepseekSaveAuthBtn?.addEventListener('click', async () => {
+    const token = deepseekTokenInput?.value.trim() || '';
+    const result = await window.electronAPI.saveDeepSeekAuth(token);
+    if (result.success) {
+      if (deepseekTokenInput) {
+        deepseekTokenInput.value = '';
+      }
+      await loadDeepSeekPluginState();
+      showToast(token ? '✅ DeepSeek Token 校验通过并已保存' : '✅ DeepSeek 登录信息已保存', 'success');
+    } else {
+      showToast(`❌ ${result.error}`, 'error');
+    }
+  });
+
+  deepseekClearAuthBtn?.addEventListener('click', async () => {
+    const state = await window.electronAPI.clearDeepSeekAuth();
+    if (deepseekTokenInput) {
+      deepseekTokenInput.value = '';
+      deepseekTokenInput.placeholder = '粘贴 chat.deepseek.com 的 userToken';
+    }
+    await loadDeepSeekPluginState();
+    showToast(state?.hasToken ? '✅ DeepSeek 登录信息已清除' : '✅ DeepSeek 登录信息已清除', 'success');
+  });
+
+  deepseekTokenToggle?.addEventListener('click', () => {
+    if (!deepseekTokenInput) return;
+    const isPassword = deepseekTokenInput.type === 'password';
+    deepseekTokenInput.type = isPassword ? 'text' : 'password';
+    deepseekTokenToggle.textContent = isPassword ? '🙈' : '👁️';
+  });
+
+  codexControlPluginSaveBtn?.addEventListener('click', async () => {
+    const state = await window.electronAPI.saveCodexControlPluginState({
+      enabled: codexControlPluginEnabled?.checked === true,
+      appServerWsUrl: codexControlPluginWsInput?.value.trim() || ''
+    });
+    await loadCodexControlPluginState();
+    showToast(
+      state.enabled
+        ? '✅ Codex 操控插件已启用'
+        : '⏹️ Codex 操控插件已关闭',
+      'success'
+    );
+  });
+
+  codexControlPluginOpenBtn?.addEventListener('click', () => {
+    window.electronAPI.openCodexControl();
   });
 
   addReminderBtn?.addEventListener('click', () => {
@@ -604,6 +791,51 @@ function bindEvents() {
     showToast(saveHistoryCheckbox.checked ? '✅ 对话历史将会自动保存' : '⏹️ 对话历史自动保存已关闭', 'success');
   });
 
+  agentModeEnabledCheckbox?.addEventListener('change', async () => {
+    await window.electronAPI.storeSet('agentModeEnabled', agentModeEnabledCheckbox.checked);
+    showToast(
+      agentModeEnabledCheckbox.checked
+        ? '✅ Agent 模式已启用，普通文字对话现在默认走 Agent'
+        : '⏹️ Agent 模式已关闭，已恢复普通聊天',
+      'success'
+    );
+  });
+
+  petChatBubbleEnabledCheckbox?.addEventListener('change', async () => {
+    await window.electronAPI.storeSet('petChatBubbleEnabled', petChatBubbleEnabledCheckbox.checked);
+    showToast(
+      petChatBubbleEnabledCheckbox.checked
+        ? '✅ 已开启桌宠气泡播报'
+        : '⏹️ 已关闭桌宠气泡播报',
+      'success'
+    );
+  });
+
+  agentWorkDirectoryBrowseBtn?.addEventListener('click', async () => {
+    const result = await window.electronAPI.selectDirectory(agentWorkDirectoryInput?.value.trim() || '');
+    if (!result || result.canceled) return;
+    if (agentWorkDirectoryInput) {
+      agentWorkDirectoryInput.value = result.path || '';
+    }
+    await window.electronAPI.storeSet('agentWorkDirectory', result.path || '');
+    showToast('✅ Agent 工作目录已更新', 'success');
+  });
+
+  agentWorkDirectoryInput?.addEventListener('change', async () => {
+    const value = agentWorkDirectoryInput.value.trim();
+    agentWorkDirectoryInput.value = value;
+    await window.electronAPI.storeSet('agentWorkDirectory', value);
+    showToast(value ? '✅ Agent 工作目录已保存' : '✅ 已恢复使用当前应用目录', 'success');
+  });
+
+  agentWorkDirectoryClearBtn?.addEventListener('click', async () => {
+    if (agentWorkDirectoryInput) {
+      agentWorkDirectoryInput.value = '';
+    }
+    await window.electronAPI.storeSet('agentWorkDirectory', '');
+    showToast('✅ 已恢复使用当前应用目录', 'success');
+  });
+
   assistantNicknameInput?.addEventListener('change', async () => {
     const nickname = assistantNicknameInput.value.trim() || '小秘书';
     assistantNicknameInput.value = nickname;
@@ -655,6 +887,7 @@ function bindEvents() {
   });
 
   window.electronAPI.onPetNetworkStateChanged?.(renderNetworkState);
+  window.electronAPI.onCodexControlPluginStateChanged?.(renderCodexControlButtonStateFromEvent);
   // 夜间模式切换
   darkModeToggle?.addEventListener('change', async () => {
     const isDarkMode = darkModeToggle.checked;
@@ -824,13 +1057,14 @@ async function deleteReminder(id) {
 // 打开模态框
 function openModal(config = null) {
   editingConfigId = config?.id || null;
+  const sourceType = config?.sourceType || 'custom';
   
   if (config) {
     modalTitle.textContent = '编辑配置';
     configNameInput.value = config.name;
-    providerTypeSelect.value = 'custom';
-    apiUrlInput.value = config.apiUrl;
-    apiKeyInput.value = config.apiKey;
+    providerTypeSelect.value = sourceType === 'plugin_deepseek' ? 'deepseek' : 'custom';
+    apiUrlInput.value = config.apiUrl || '';
+    apiKeyInput.value = config.apiKey || '';
     modelSelect.value = config.selectedModel || '';
     enabledCheckbox.checked = config.enabled !== false;
   } else {
@@ -843,6 +1077,7 @@ function openModal(config = null) {
     enabledCheckbox.checked = true;
   }
   
+  applyProviderFormMode();
   modelInfo.classList.remove('show');
   testResult.classList.add('hidden');
   modal.classList.remove('hidden');
@@ -856,11 +1091,28 @@ function closeModal() {
 
 // 提供商类型变化
 function onProviderTypeChange() {
+  applyProviderFormMode();
   const template = appConfig.providerTemplates.custom;
-  if (!editingConfigId || !apiUrlInput.value.trim()) {
+  if (providerTypeSelect.value === 'custom' && (!editingConfigId || !apiUrlInput.value.trim())) {
     apiUrlInput.value = template.defaultApiUrl;
   }
+  if (providerTypeSelect.value === 'deepseek' && !editingConfigId) {
+    modelSelect.value = 'deepseek-v4-flash';
+  }
   onModelChange();
+}
+
+function applyProviderFormMode() {
+  const isDeepSeek = providerTypeSelect?.value === 'deepseek';
+  apiUrlGroup?.classList.toggle('hidden', isDeepSeek);
+  apiKeyGroup?.classList.toggle('hidden', isDeepSeek);
+  if (apiUrlInput) apiUrlInput.required = !isDeepSeek;
+  if (apiKeyInput) apiKeyInput.required = !isDeepSeek;
+  if (deepseekPluginNote) {
+    deepseekPluginNote.textContent = isDeepSeek
+      ? 'DeepSeek 插件会使用你网页登录保存的认证信息。'
+      : '选择 DeepSeek 插件后，这两项会自动隐藏。';
+  }
 }
 
 // 模型选择变化
@@ -876,14 +1128,22 @@ function getSelectedModel() {
 // 测试当前配置
 async function testCurrentConfig() {
   const selectedModel = getSelectedModel();
+  const isDeepSeek = providerTypeSelect.value === 'deepseek';
   const config = {
-    provider: providerTypeSelect.value || 'custom',
-    apiUrl: apiUrlInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
+    provider: isDeepSeek ? 'deepseek' : (providerTypeSelect.value || 'custom'),
+    sourceType: isDeepSeek ? 'plugin_deepseek' : 'custom_openai',
+    pluginId: isDeepSeek ? 'deepseek' : null,
+    apiUrl: isDeepSeek ? '' : apiUrlInput.value.trim(),
+    apiKey: isDeepSeek ? '' : apiKeyInput.value.trim(),
     selectedModel: selectedModel
   };
   
-  if (!config.provider || !config.apiUrl || !config.apiKey) {
+  if (!config.provider) {
+    showTestResult(false, '📝 请先选择配置来源~');
+    return;
+  }
+
+  if (!isDeepSeek && (!config.apiUrl || !config.apiKey)) {
     showTestResult(false, '📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！');
     return;
   }
@@ -922,16 +1182,24 @@ function showTestResult(success, message) {
 // 保存当前配置
 async function saveCurrentConfig() {
   const selectedModel = getSelectedModel();
+  const isDeepSeek = providerTypeSelect.value === 'deepseek';
   const config = {
     name: configNameInput.value.trim(),
-    provider: providerTypeSelect.value || 'custom',
-    apiUrl: apiUrlInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
+    provider: isDeepSeek ? 'deepseek' : (providerTypeSelect.value || 'custom'),
+    sourceType: isDeepSeek ? 'plugin_deepseek' : 'custom_openai',
+    pluginId: isDeepSeek ? 'deepseek' : null,
+    apiUrl: isDeepSeek ? '' : apiUrlInput.value.trim(),
+    apiKey: isDeepSeek ? '' : apiKeyInput.value.trim(),
     selectedModel: selectedModel,
     enabled: enabledCheckbox.checked
   };
   
-  if (!config.name || !config.provider || !config.apiUrl || !config.apiKey) {
+  if (!config.name || !config.provider) {
+    showToast('📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！', 'info');
+    return;
+  }
+
+  if (!isDeepSeek && (!config.apiUrl || !config.apiKey)) {
     showToast('📝 嗯...还有一些必填项没填呢~ 请把所有带 * 号的项目都填上吧！', 'info');
     return;
   }

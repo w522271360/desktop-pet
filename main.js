@@ -1,19 +1,22 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, screen, dialog, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const childProcess = require('child_process');
+const net = require('net');
 const axios = require('axios');
 const config = require('./config');
 const store = require('./store');
 const apiService = require('./api-service');
+const piAgentService = require('./pi-agent-service');
 const { notifyApiConfigsChanged } = require('./config-change-notifier');
 const { getImageExtension } = require('./generated-image-export');
 const { resolveConversationSavePath } = require('./conversation-save-path');
 const { createReminderManager } = require('./reminder-manager');
 const { getPortableRelaunchOptions } = require('./portable-restart');
 const { createPetNetworkClient } = require('./pet-network-client');
+const deepseekPlugin = require('./deepseek-plugin');
 
 const APP_NAME = '桌面小助手';
-
 app.setName(APP_NAME);
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.king.desktop-helper');
@@ -29,15 +32,29 @@ let chatWindowReady = false;
 let pendingExternalPaste = null;
 let settingsWindow = null;
 let screenshotSelectorWindow = null;
+let deepseekLoginWindow = null;
+let codexControlWindow = null;
+let codexWebServerProcess = null;
+let codexWebServerPort = null;
+let codexWebServerStartPromise = null;
+let codexAppServerProcess = null;
+let codexAppServerUrl = '';
+let codexAppServerNextId = 1;
+let codexAppServerPending = new Map();
+let codexAppServerConnectPromise = null;
+let codexAppServerInitialized = false;
+let codexAppServerBridgeReady = false;
+let codexAppServerBridgeBuffer = '';
 let reminderCheckTimer = null;
 let activeReminderId = null;
+let isAppQuitting = false;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const windowToFocus = chatWindow || settingsWindow || petWindow;
+    const windowToFocus = chatWindow || codexControlWindow || settingsWindow || petWindow;
     if (!windowToFocus || windowToFocus.isDestroyed()) return;
     if (windowToFocus.isMinimized()) windowToFocus.restore();
     windowToFocus.show();
@@ -173,6 +190,19 @@ function sendToWindow(windowRef, channel, payload) {
   }
 }
 
+function broadcastCodexControlPluginState() {
+  const plugins = store.get('plugins', {});
+  const state = {
+    enabled: plugins.codexControl?.enabled === true,
+    appServerWsUrl: String(plugins.codexControl?.appServerWsUrl || '').trim(),
+    updatedAt: plugins.codexControl?.updatedAt || null
+  };
+  [chatWindow, settingsWindow, codexControlWindow].forEach(win => {
+    sendToWindow(win, 'codex-control-plugin-state-changed', state);
+  });
+  return state;
+}
+
 function broadcastPetNetwork(channel, payload) {
   [petWindow, chatWindow, settingsWindow].forEach(win => sendToWindow(win, channel, payload));
 }
@@ -188,6 +218,17 @@ function showPetNetworkBubble(payload) {
     text: payload?.text || '',
     from: payload?.from || null,
     sentAt: payload?.sentAt || new Date().toISOString()
+  });
+}
+
+function showPetChatBubble(payload) {
+  if (!payload?.text) return;
+  resizePetWindowForReminder(true);
+  sendToWindow(petWindow, 'pet-chat-bubble', {
+    title: payload.title || '小秘书',
+    text: payload.text,
+    meta: payload.meta || '',
+    variant: payload.variant || 'chat'
   });
 }
 
@@ -248,10 +289,15 @@ function createPetWindow() {
     height: sizeConfig.height,
     transparent: true,
     frame: false,
+    type: 'toolbar',
     alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
-    focusable: true,
+    focusable: false,
     skipTaskbar: true,
+    show: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -280,6 +326,7 @@ function createPetWindow() {
   const x = width - sizeConfig.width - 20; // 距离右边缘20px
   const y = height - sizeConfig.height - 20; // 距离底部20px
   petWindow.setPosition(x, y);
+  petWindow.setSkipTaskbar(true);
   if (process.argv.includes('--dev')) {
     console.log('[pet] window-bounds', petWindow.getBounds());
   }
@@ -291,6 +338,8 @@ function createPetWindow() {
   }
 
   petWindow.webContents.once('did-finish-load', () => {
+    petWindow.showInactive();
+    petWindow.setSkipTaskbar(true);
     sendActiveReminderToPet();
   });
 
@@ -298,6 +347,7 @@ function createPetWindow() {
     petWindow = null;
     if (chatWindow) chatWindow.close();
     if (settingsWindow) settingsWindow.close();
+    if (codexControlWindow) codexControlWindow.close();
   });
 }
 
@@ -343,11 +393,24 @@ function createChatWindow() {
   chatWindow = new BrowserWindow(options);
   chatWindowReady = false;
 
+  chatWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[chat] did-fail-load', errorCode, errorDescription);
+  });
+  chatWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('[chat] render-process-gone', JSON.stringify(details));
+  });
+
   chatWindow.loadFile(path.join(__dirname, 'renderer', 'chat.html'));
 
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  chatWindow.on('close', (event) => {
+    if (isAppQuitting) return;
+    event.preventDefault();
+    chatWindow.hide();
+  });
 
   chatWindow.on('closed', () => {
     chatWindow = null;
@@ -410,6 +473,570 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => {
     settingsWindow = null;
   });
+}
+
+function createDeepSeekLoginWindow() {
+  const deepSeekUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
+
+  if (deepseekLoginWindow) {
+    if (deepseekLoginWindow.isMinimized()) {
+      deepseekLoginWindow.restore();
+    }
+    deepseekLoginWindow.show();
+    deepseekLoginWindow.focus();
+    return deepseekLoginWindow;
+  }
+
+  deepseekLoginWindow = new BrowserWindow({
+    width: 1200,
+    height: 860,
+    title: 'DeepSeek 登录',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      partition: 'persist:deepseek-login'
+    }
+  });
+
+  deepseekLoginWindow.webContents.setUserAgent(deepSeekUserAgent);
+  deepseekLoginWindow.loadURL('https://chat.deepseek.com/sign_in', {
+    userAgent: deepSeekUserAgent,
+    extraHeaders: 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8\n'
+  });
+  deepseekLoginWindow.show();
+
+  deepseekLoginWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[deepseek-login] did-fail-load', errorCode, errorDescription);
+  });
+
+  deepseekLoginWindow.on('closed', () => {
+    deepseekLoginWindow = null;
+  });
+
+  return deepseekLoginWindow;
+}
+
+function getCodexControlPluginState() {
+  const plugins = store.get('plugins', {});
+  return {
+    enabled: plugins.codexControl?.enabled === true,
+    appServerWsUrl: String(plugins.codexControl?.appServerWsUrl || '').trim(),
+    updatedAt: plugins.codexControl?.updatedAt || null
+  };
+}
+
+function sendCodexAppServerStatus(payload) {
+  sendToWindow(codexControlWindow, 'codex-control-app-server-status', {
+    connected: codexAppServerInitialized,
+    url: codexAppServerUrl,
+    ...payload
+  });
+}
+
+function rejectCodexAppServerPending(error) {
+  codexAppServerPending.forEach((pending) => {
+    clearTimeout(pending.timer);
+    pending.reject(error);
+  });
+  codexAppServerPending.clear();
+}
+
+function closeCodexAppServerConnection(reason = 'closed') {
+  codexAppServerInitialized = false;
+  codexAppServerBridgeReady = false;
+  codexAppServerConnectPromise = null;
+  rejectCodexAppServerPending(new Error(reason));
+  if (codexAppServerProcess && !codexAppServerProcess.killed) {
+    const bridge = codexAppServerProcess;
+    codexAppServerProcess = null;
+    try {
+      bridge.stdin?.write(`${JSON.stringify({ type: 'close' })}\n`);
+      bridge.kill();
+    } catch (error) {
+      console.warn('[codex-control] failed to close app-server bridge', error.message);
+    }
+  }
+}
+
+function codexAppServerSend(message) {
+  if (!codexAppServerProcess || codexAppServerProcess.killed || !codexAppServerBridgeReady) {
+    throw new Error('app-server bridge is not connected');
+  }
+  codexAppServerProcess.stdin.write(`${JSON.stringify({ type: 'send', message })}\n`);
+}
+
+function codexAppServerRequest(method, params = {}, timeoutMs = 30000) {
+  const id = codexAppServerNextId++;
+  const request = { method, id, params };
+  const promise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      codexAppServerPending.delete(id);
+      reject(new Error(`${method} 请求超时`));
+    }, timeoutMs);
+    codexAppServerPending.set(id, { resolve, reject, timer, method });
+  });
+  codexAppServerSend(request);
+  return promise;
+}
+
+function codexAppServerNotify(method, params = {}) {
+  codexAppServerSend({ method, params });
+}
+
+function getCodexAppServerBridgeScript() {
+  return [
+    "const readline = require('readline');",
+    'let ws = null;',
+    "function send(payload) { process.stdout.write(JSON.stringify(payload) + '\\n'); }",
+    'function closeWs() { if (!ws) return; try { ws.close(); } catch (_) {} ws = null; }',
+    "async function connect(url) {",
+    '  closeWs();',
+    "  if (typeof WebSocket !== 'function') { throw new Error('This Node.js runtime does not provide WebSocket.'); }",
+    '  ws = new WebSocket(url);',
+    "  ws.addEventListener('open', () => send({ type: 'open' }), { once: true });",
+    "  ws.addEventListener('message', (event) => {",
+    "    const text = typeof event.data === 'string' ? event.data : String(event.data);",
+    "    try { send({ type: 'message', message: JSON.parse(text) }); }",
+    "    catch (error) { send({ type: 'error', message: 'Invalid app-server JSON: ' + error.message }); }",
+    '  });',
+    "  ws.addEventListener('error', () => send({ type: 'error', message: 'WebSocket error' }));",
+    "  ws.addEventListener('close', () => send({ type: 'close' }));",
+    '}',
+    'const rl = readline.createInterface({ input: process.stdin });',
+    "rl.on('line', async (line) => {",
+    '  let message;',
+    "  try { message = JSON.parse(line); } catch (error) { send({ type: 'error', message: 'Invalid bridge input: ' + error.message }); return; }",
+    '  try {',
+    "    if (message.type === 'connect') { await connect(message.url); return; }",
+    "    if (message.type === 'close') { closeWs(); return; }",
+    "    if (message.type === 'send') {",
+    "      if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket is not open');",
+    '      ws.send(JSON.stringify(message.message));',
+    '    }',
+    "  } catch (error) { send({ type: 'error', message: error.message }); }",
+    '});',
+    "process.on('disconnect', closeWs);",
+    "process.on('SIGTERM', () => { closeWs(); process.exit(0); });"
+  ].join('\n');
+}
+
+function writeCodexAppServerBridgeScript() {
+  const scriptPath = path.join(store.dataDirectory, 'codex-app-server-bridge.js');
+  const script = getCodexAppServerBridgeScript();
+  try {
+    if (fs.existsSync(scriptPath) && fs.readFileSync(scriptPath, 'utf8') === script) {
+      return scriptPath;
+    }
+  } catch (_) {}
+  fs.writeFileSync(scriptPath, script);
+  return scriptPath;
+}
+
+function findSystemNodeExecutable() {
+  if (process.platform !== 'win32') return 'node';
+  try {
+    const output = childProcess.execFileSync('where', ['node'], {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    const candidates = output
+      .split(/\r?\n/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    return candidates[0] || 'node';
+  } catch (_) {
+    return 'node';
+  }
+}
+
+function handleCodexAppServerMessage(message) {
+  if (message.id != null && codexAppServerPending.has(message.id)) {
+    const pending = codexAppServerPending.get(message.id);
+    codexAppServerPending.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.error) {
+      pending.reject(new Error(message.error.message || `${pending.method} failed`));
+    } else {
+      pending.resolve(message.result);
+    }
+    return;
+  }
+
+  sendToWindow(codexControlWindow, 'codex-control-app-server-event', message);
+}
+
+function handleCodexBridgePayload(payload) {
+  if (payload.type === 'open') {
+    codexAppServerBridgeReady = true;
+    sendCodexAppServerStatus({ state: 'bridge-open', message: 'app-server bridge connected' });
+    return;
+  }
+
+  if (payload.type === 'message') {
+    handleCodexAppServerMessage(payload.message);
+    return;
+  }
+
+  if (payload.type === 'error') {
+    sendCodexAppServerStatus({ state: 'warning', message: payload.message || 'app-server bridge error' });
+    return;
+  }
+
+  if (payload.type === 'close') {
+    const wasInitialized = codexAppServerInitialized;
+    codexAppServerInitialized = false;
+    codexAppServerBridgeReady = false;
+    rejectCodexAppServerPending(new Error('app-server connection closed'));
+    if (wasInitialized) {
+      sendCodexAppServerStatus({ state: 'closed', message: 'app-server connection closed' });
+    }
+  }
+}
+
+function startCodexAppServerBridge() {
+  if (codexAppServerProcess && !codexAppServerProcess.killed) {
+    return codexAppServerProcess;
+  }
+
+  const scriptPath = writeCodexAppServerBridgeScript();
+  const nodePath = findSystemNodeExecutable();
+  codexAppServerBridgeBuffer = '';
+  codexAppServerProcess = childProcess.spawn(nodePath, [scriptPath], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  codexAppServerProcess.stdout?.on('data', chunk => {
+    codexAppServerBridgeBuffer += String(chunk);
+    const lines = codexAppServerBridgeBuffer.split(/\r?\n/);
+    codexAppServerBridgeBuffer = lines.pop() || '';
+    lines.filter(Boolean).forEach(line => {
+      try {
+        handleCodexBridgePayload(JSON.parse(line));
+      } catch (error) {
+        sendCodexAppServerStatus({ state: 'warning', message: `Invalid bridge JSON: ${error.message}` });
+      }
+    });
+  });
+
+  codexAppServerProcess.stderr?.on('data', chunk => {
+    console.error('[codex-control-bridge]', String(chunk).trim());
+  });
+
+  codexAppServerProcess.once('error', error => {
+    codexAppServerInitialized = false;
+    codexAppServerBridgeReady = false;
+    codexAppServerConnectPromise = null;
+    rejectCodexAppServerPending(error);
+    sendCodexAppServerStatus({ state: 'error', message: error.message });
+  });
+
+  codexAppServerProcess.once('exit', (code, signal) => {
+    const wasInitialized = codexAppServerInitialized;
+    codexAppServerProcess = null;
+    codexAppServerInitialized = false;
+    codexAppServerBridgeReady = false;
+    codexAppServerConnectPromise = null;
+    rejectCodexAppServerPending(new Error(`app-server bridge exited: ${code ?? signal ?? 'unknown'}`));
+    if (wasInitialized && !isAppQuitting) {
+      sendCodexAppServerStatus({ state: 'closed', message: 'app-server bridge exited' });
+    }
+  });
+
+  return codexAppServerProcess;
+}
+
+function waitForCodexBridgeOpen(timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (codexAppServerBridgeReady) {
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      if (!codexAppServerProcess || codexAppServerProcess.killed) {
+        clearInterval(timer);
+        reject(new Error('app-server bridge exited before connecting'));
+        return;
+      }
+      if (Date.now() - startedAt > timeoutMs) {
+        clearInterval(timer);
+        reject(new Error('app-server bridge connection timeout'));
+      }
+    }, 50);
+  });
+}
+
+async function connectCodexAppServer() {
+  const pluginState = getCodexControlPluginState();
+  if (!pluginState.enabled) {
+    throw new Error('Codex control plugin is disabled');
+  }
+  if (!pluginState.appServerWsUrl) {
+    throw new Error('Please set the app-server WebSocket URL first');
+  }
+
+  const targetUrl = pluginState.appServerWsUrl;
+  if (
+    codexAppServerBridgeReady &&
+    codexAppServerInitialized &&
+    codexAppServerUrl === targetUrl
+  ) {
+    return { connected: true, url: codexAppServerUrl };
+  }
+
+  if (codexAppServerConnectPromise) {
+    return codexAppServerConnectPromise;
+  }
+
+  closeCodexAppServerConnection('reconnecting app-server');
+  codexAppServerUrl = targetUrl;
+  sendCodexAppServerStatus({ state: 'connecting', message: 'connecting app-server' });
+
+  codexAppServerConnectPromise = (async () => {
+    try {
+      const bridge = startCodexAppServerBridge();
+      bridge.stdin.write(`${JSON.stringify({ type: 'connect', url: targetUrl })}\n`);
+      await waitForCodexBridgeOpen();
+      const initResult = await codexAppServerRequest('initialize', {
+        clientInfo: {
+          name: 'desktop_pet_codex_control',
+          title: 'Desktop Pet Codex Control',
+          version: app.getVersion()
+        },
+        capabilities: {
+          experimentalApi: true
+        }
+      });
+      codexAppServerNotify('initialized', {});
+      codexAppServerInitialized = true;
+      codexAppServerConnectPromise = null;
+      sendCodexAppServerStatus({ state: 'connected', message: 'connected app-server' });
+      return { connected: true, url: targetUrl, initialize: initResult };
+    } catch (error) {
+      codexAppServerInitialized = false;
+      codexAppServerConnectPromise = null;
+      rejectCodexAppServerPending(error);
+      sendCodexAppServerStatus({ state: 'error', message: error.message });
+      closeCodexAppServerConnection(error.message);
+      throw error;
+    }
+  })();
+
+  return codexAppServerConnectPromise;
+}
+
+function findCodexWebRoot() {
+  const candidates = [
+    path.resolve(__dirname, '..', 'codex-web'),
+    path.resolve(process.cwd(), '..', 'codex-web'),
+    path.join(app.getPath('documents'), 'Codex', 'codex-web'),
+    path.join(path.dirname(process.execPath), 'codex-web')
+  ];
+
+  return candidates.find(candidate => (
+    fs.existsSync(path.join(candidate, 'src', 'server', 'main.js')) &&
+    fs.existsSync(path.join(candidate, 'scripts', 'codex_wss_proxy.cmd')) &&
+    fs.existsSync(path.join(candidate, 'scratch', 'asar', 'webview', 'index.html'))
+  )) || null;
+}
+
+function findAvailablePort(startPort = 18214) {
+  return new Promise((resolve, reject) => {
+    const tryPort = (port) => {
+      const server = net.createServer();
+      server.once('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+          tryPort(port + 1);
+          return;
+        }
+        reject(error);
+      });
+      server.once('listening', () => {
+        server.close(() => resolve(port));
+      });
+      server.listen(port, '127.0.0.1');
+    };
+
+    tryPort(startPort);
+  });
+}
+
+function stopCodexWebServer() {
+  if (codexWebServerProcess && !codexWebServerProcess.killed) {
+    codexWebServerProcess.kill();
+  }
+  codexWebServerProcess = null;
+  codexWebServerPort = null;
+  codexWebServerStartPromise = null;
+}
+
+function writeCodexProxyCommand(codexWebRoot) {
+  const proxyScript = path.join(codexWebRoot, 'scripts', 'codex_wss_proxy.mjs');
+  const proxyCommandPath = path.join(store.dataDirectory, 'codex-control-proxy.cmd');
+  const command = [
+    '@echo off',
+    'where node >nul 2>nul',
+    'if %ERRORLEVEL%==0 (',
+    `  node "${proxyScript}" %*`,
+    '  exit /b %ERRORLEVEL%',
+    ')',
+    'set ELECTRON_RUN_AS_NODE=1',
+    `"${process.execPath}" "${proxyScript}" %*`
+  ].join('\r\n');
+  fs.writeFileSync(proxyCommandPath, command);
+  return proxyCommandPath;
+}
+
+async function ensureCodexWebServer() {
+  if (codexWebServerProcess && codexWebServerPort) {
+    return `http://127.0.0.1:${codexWebServerPort}/`;
+  }
+
+  if (codexWebServerStartPromise) {
+    return codexWebServerStartPromise;
+  }
+
+  codexWebServerStartPromise = (async () => {
+    const pluginState = getCodexControlPluginState();
+    if (!pluginState.appServerWsUrl) {
+      throw new Error('请先在插件设置里填写 app-server 的 WebSocket 地址');
+    }
+
+    const codexWebRoot = findCodexWebRoot();
+    if (!codexWebRoot) {
+      throw new Error('未找到 codex-web 目录，请确认它位于 Documents/Codex/codex-web 或 exe 同级 codex-web');
+    }
+
+    const port = await findAvailablePort();
+    const serverEntry = path.join(codexWebRoot, 'src', 'server', 'main.js');
+    const proxyPath = writeCodexProxyCommand(codexWebRoot);
+
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        stopCodexWebServer();
+        reject(new Error('codex-web 启动超时'));
+      }, 30000);
+
+      const finish = (url) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        codexWebServerPort = port;
+        resolve(url);
+      };
+
+      codexWebServerProcess = childProcess.spawn(
+        process.execPath,
+        [serverEntry, '--host', '127.0.0.1', '--port', String(port)],
+        {
+          cwd: codexWebRoot,
+          windowsHide: true,
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: '1',
+            CODEX_CLI_PATH: proxyPath,
+            CODEX_REMOTE_APP_SERVER_URL: pluginState.appServerWsUrl
+          }
+        }
+      );
+
+      codexWebServerProcess.stdout?.on('data', chunk => {
+        const text = String(chunk);
+        console.log('[codex-web]', text.trim());
+        if (text.includes('IPC bridge listening')) {
+          finish(`http://127.0.0.1:${port}/`);
+        }
+      });
+
+      codexWebServerProcess.stderr?.on('data', chunk => {
+        console.error('[codex-web]', String(chunk).trim());
+      });
+
+      codexWebServerProcess.once('error', error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        stopCodexWebServer();
+        reject(error);
+      });
+
+      codexWebServerProcess.once('exit', (code, signal) => {
+        const wasSettled = settled;
+        codexWebServerProcess = null;
+        codexWebServerPort = null;
+        codexWebServerStartPromise = null;
+        if (!wasSettled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(`codex-web 已退出：${code ?? signal ?? 'unknown'}`));
+        }
+      });
+    });
+  })();
+
+  return codexWebServerStartPromise;
+}
+
+// 创建 Codex 操控台窗口
+function createCodexControlWindow() {
+  if (codexControlWindow) {
+    if (codexControlWindow.isMinimized()) {
+      codexControlWindow.restore();
+    }
+    if (!codexControlWindow.isVisible()) {
+      codexControlWindow.show();
+    }
+    codexControlWindow.focus();
+    return codexControlWindow;
+  }
+
+  const appIcon = getAppIcon();
+  const options = {
+    width: 980,
+    height: 680,
+    minWidth: 760,
+    minHeight: 560,
+    autoHideMenuBar: true,
+    backgroundColor: '#f6f1e8',
+    title: 'Codex 操控',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  };
+
+  if (appIcon) {
+    options.icon = appIcon;
+  }
+
+  codexControlWindow = new BrowserWindow(options);
+  codexControlWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[codex-control] did-fail-load', errorCode, errorDescription);
+  });
+  codexControlWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('[codex-control] render-process-gone', JSON.stringify(details));
+  });
+  codexControlWindow.show();
+  codexControlWindow.focus();
+  codexControlWindow.loadFile(path.join(__dirname, 'renderer', 'codex-control.html'));
+
+  if (process.argv.includes('--dev')) {
+    codexControlWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+
+  codexControlWindow.on('closed', () => {
+    codexControlWindow = null;
+  });
+
+  return codexControlWindow;
 }
 
 // 保存对话为Markdown
@@ -677,11 +1304,11 @@ ipcMain.on('paste-to-chat', () => {
 
 ipcMain.on('focus-pet-window', () => {
   if (!petWindow || petWindow.isDestroyed()) return;
-
-  petWindow.setFocusable(true);
-  if (!petWindow.isFocused()) {
-    petWindow.focus();
+  if (!petWindow.isVisible()) {
+    petWindow.showInactive();
   }
+  petWindow.moveTop();
+  petWindow.setSkipTaskbar(true);
 });
 
 ipcMain.on('chat-ready-for-paste', () => {
@@ -696,11 +1323,17 @@ ipcMain.on('open-settings', () => {
   createSettingsWindow();
 });
 
+ipcMain.on('open-codex-control', () => {
+  createCodexControlWindow();
+});
+
 ipcMain.on('quit-app', () => {
+  isAppQuitting = true;
   app.quit();
 });
 
 ipcMain.on('restart-app', () => {
+  isAppQuitting = true;
   app.relaunch(getPortableRelaunchOptions() || undefined);
   app.exit(0);
 });
@@ -756,6 +1389,34 @@ ipcMain.handle('acknowledge-reminder', (event, { id }) => {
 
 ipcMain.handle('send-message', async (event, { messages }) => {
   return await apiService.sendMessage(messages);
+});
+
+ipcMain.handle('send-pi-agent-message', async (event, payload = {}) => {
+  const requestId = String(payload.requestId || '').trim() || `pi-agent-${Date.now()}`;
+  const sendPiEvent = (agentEvent) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('pi-agent-event', {
+        requestId,
+        ...agentEvent
+      });
+    }
+  };
+
+  return await piAgentService.sendMessage({
+    requestId,
+    prompt: payload.prompt,
+    cwd: payload.cwd,
+    history: payload.history,
+    onEvent: sendPiEvent
+  });
+});
+
+ipcMain.handle('get-pi-agent-status', () => {
+  return piAgentService.getStatus();
+});
+
+ipcMain.handle('cancel-pi-agent-message', async (event, payload = {}) => {
+  return await piAgentService.cancelMessage(payload.requestId);
 });
 
 ipcMain.handle('save-conversation', async (event, { conversation }) => {
@@ -834,9 +1495,105 @@ ipcMain.handle('save-generated-image', async (event, { image }) => {
   }
 });
 
+ipcMain.handle('select-directory', async (event, { defaultPath } = {}) => {
+  const result = await dialog.showOpenDialog(settingsWindow || chatWindow || petWindow, {
+    title: '选择 Agent 工作目录',
+    properties: ['openDirectory'],
+    defaultPath: typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : undefined
+  });
+
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+
+  return {
+    canceled: false,
+    path: result.filePaths[0]
+  };
+});
+
 // 测试 API 配置
 ipcMain.handle('test-api-config', async (event, { apiConfig }) => {
   return await apiService.testConnection(apiConfig);
+});
+
+ipcMain.handle('deepseek-plugin-open-login', () => {
+  createDeepSeekLoginWindow();
+  return { success: true };
+});
+
+ipcMain.handle('deepseek-plugin-save-auth', async (event, payload = {}) => {
+  if ((!payload.token || !String(payload.token).trim()) && (!deepseekLoginWindow || deepseekLoginWindow.isDestroyed())) {
+    return { success: false, error: 'DeepSeek 登录窗口不存在，请先打开登录窗口' };
+  }
+
+  try {
+    const state = payload.token
+      ? await deepseekPlugin.saveToken(payload.token)
+      : await deepseekPlugin.loginWithWindow(deepseekLoginWindow);
+    return { success: true, state };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('deepseek-plugin-get-state', () => {
+  return deepseekPlugin.getState();
+});
+
+ipcMain.handle('deepseek-plugin-clear-auth', () => {
+  return deepseekPlugin.clearAuth();
+});
+
+ipcMain.handle('codex-control-plugin-get-state', () => {
+  return getCodexControlPluginState();
+});
+
+ipcMain.handle('codex-control-app-server-connect', async () => {
+  try {
+    return { success: true, ...(await connectCodexAppServer()) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('codex-control-app-server-request', async (event, payload = {}) => {
+  try {
+    await connectCodexAppServer();
+    const method = String(payload.method || '').trim();
+    if (!method) {
+      throw new Error('缺少 app-server method');
+    }
+    const result = await codexAppServerRequest(method, payload.params || {}, payload.timeoutMs || 30000);
+    return { success: true, result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('codex-control-app-server-disconnect', () => {
+  closeCodexAppServerConnection('用户断开 app-server');
+  sendCodexAppServerStatus({ state: 'closed', message: '已断开 app-server' });
+  return { success: true };
+});
+
+ipcMain.handle('codex-control-plugin-save-state', (event, payload = {}) => {
+  const plugins = store.get('plugins', {});
+  const previousWsUrl = String(plugins.codexControl?.appServerWsUrl || '').trim();
+  const nextWsUrl = String(payload.appServerWsUrl || '').trim();
+  const codexControl = {
+    ...(plugins.codexControl || {}),
+    enabled: payload.enabled === true,
+    appServerWsUrl: nextWsUrl,
+    updatedAt: new Date().toISOString()
+  };
+  plugins.codexControl = codexControl;
+  store.set('plugins', plugins);
+  if (previousWsUrl !== nextWsUrl) {
+    stopCodexWebServer();
+    closeCodexAppServerConnection('app-server 地址已变更');
+  }
+  return broadcastCodexControlPluginState();
 });
 
 // 配置管理
@@ -975,6 +1732,17 @@ ipcMain.handle('pet-network-send-chat', (event, payload) => {
 });
 
 ipcMain.on('pet-network-bubble-closed', () => {
+  if (!activeReminderId) {
+    resizePetWindowForReminder(false);
+  }
+});
+
+ipcMain.on('pet-chat-bubble', (event, payload) => {
+  showPetChatBubble(payload);
+});
+
+ipcMain.on('pet-chat-bubble-clear', () => {
+  sendToWindow(petWindow, 'pet-chat-bubble-clear');
   if (!activeReminderId) {
     resizePetWindowForReminder(false);
   }
@@ -1223,10 +1991,16 @@ app.whenReady().then(async () => {
   // 自动打开对话窗口（如果已启用）
   const autoOpenChat = store.get('autoOpenChat', false);
   if (autoOpenChat) {
-    console.log('💬 自动打开对话窗口...');
     setTimeout(() => {
       createChatWindow();
     }, 500); // 延迟500ms，确保宠物窗口先加载完成
+  }
+
+  if (process.env.DESKTOP_PET_SELFTEST_CODEX_CONTROL === '1') {
+    setTimeout(() => {
+      createChatWindow();
+      createCodexControlWindow();
+    }, 1200);
   }
 
   startReminderScheduler();
@@ -1246,7 +2020,10 @@ app.on('window-all-closed', () => {
 
 // 应用退出时清理
 app.on('before-quit', async () => {
+  isAppQuitting = true;
   stopReminderScheduler();
+  stopCodexWebServer();
+  closeCodexAppServerConnection('应用退出');
   
   console.log('👋 应用正在退出...');
 });

@@ -253,6 +253,23 @@ body {
   justify-content: flex-end;
 }
 
+.hidden {
+  display: none !important;
+}
+
+.setting-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-input-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* 配置列表 */
 .configs-list {
   display: grid;
@@ -990,6 +1007,55 @@ input:checked + .slider:before {
 
 .model-info.show {
   display: block;
+}
+
+.plugin-section {
+  margin-bottom: 20px;
+}
+
+.plugin-card {
+  border: 2px solid var(--primary-light);
+  border-radius: 18px;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.96) 0%, rgba(255, 247, 236, 0.98) 100%);
+  box-shadow: 0 8px 24px rgba(255, 165, 0, 0.08);
+}
+
+.plugin-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.plugin-card-header p,
+.plugin-hint,
+.field-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #7a6650;
+  line-height: 1.5;
+}
+
+.plugin-status {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 183, 77, 0.18);
+  color: #8a5600;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.plugin-status.active {
+  background: rgba(76, 175, 80, 0.14);
+  color: #2e7d32;
+}
+
+.plugin-status.error {
+  background: rgba(244, 67, 54, 0.14);
+  color: #b71c1c;
 }
 
 .modal-footer {

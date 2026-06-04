@@ -17,6 +17,10 @@ test('packages main-process helpers required at app startup', () => {
     'openai-compatible.js must be included in packaged desktop builds'
   );
   assert.ok(
+    packageJson.build.files.includes('deepseek-plugin.js'),
+    'deepseek-plugin.js must be included in packaged desktop builds'
+  );
+  assert.ok(
     packageJson.build.files.includes('generated-image-export.js'),
     'generated-image-export.js must be included in packaged desktop builds'
   );
@@ -39,6 +43,19 @@ test('packages main-process helpers required at app startup', () => {
   assert.ok(
     packageJson.build.files.includes('preload.js'),
     'preload bridge must be included so packaged settings can control launch-at-login'
+  );
+  assert.ok(
+    packageJson.build.files.includes('sha3_wasm_bg.7b9ca65ddd.wasm'),
+    'DeepSeek challenge wasm must be included in packaged desktop builds'
+  );
+  assert.ok(
+    packageJson.build.files.includes('pi-agent-service.js'),
+    'Pi bridge must be included in packaged desktop builds'
+  );
+  assert.ok(
+    Array.isArray(packageJson.build.extraResources)
+      && packageJson.build.extraResources.some((entry) => entry.from === 'third_party/pi' && entry.to === 'pi'),
+    'vendored Pi runtime must be copied into packaged desktop resources'
   );
   assert.ok(
     packageJson.build.files.includes('config/prompt-templates.json'),
@@ -66,6 +83,6 @@ test('packages main-process helpers required at app startup', () => {
   );
   assert.equal(packageJson.build.win.icon, 'assets/icon.ico');
   assert.equal(packageJson.build.mac.icon, 'assets/icon.icns');
-  assert.equal(packageJson.build.productName, '桌面小助手');
-  assert.equal(packageJson.productName, '桌面小助手');
+  assert.equal(packageJson.build.productName, 'Desktop Pet');
+  assert.equal(packageJson.productName, 'Desktop Pet');
 });

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codex 操控</title>
+  <link rel="stylesheet" href="codex-control.css">
+</head>
+<body>
+  <main class="shell">
+    <aside class="threads-pane">
+      <header class="pane-header">
+        <div>
+          <p class="eyebrow">Codex app-server</p>
+          <h1>操控台</h1>
+        </div>
+        <button id="refresh-btn" class="icon-btn" type="button" title="刷新会话">刷新</button>
+      </header>
+
+      <section id="connection-card" class="connection-card">
+        <div class="status-line">
+          <span id="status-dot" class="status-dot"></span>
+          <strong id="status-title">未连接</strong>
+        </div>
+        <p id="status-detail">正在读取插件配置...</p>
+        <button id="connect-btn" class="primary-btn" type="button">连接</button>
+      </section>
+
+      <div class="list-tools">
+        <input id="thread-search" type="search" placeholder="搜索项目或会话">
+        <button id="new-thread-btn" class="secondary-btn" type="button">新会话</button>
+      </div>
+
+      <div id="thread-list" class="thread-list" aria-live="polite"></div>
+    </aside>
+
+    <section class="chat-pane">
+      <header class="chat-header">
+        <div>
+          <p id="thread-meta" class="eyebrow">选择项目或会话开始</p>
+          <h2 id="thread-title">轻量 Codex 控制台</h2>
+        </div>
+        <button id="stop-btn" class="secondary-btn hidden" type="button">停止</button>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <form id="composer" class="composer">
+        <textarea id="prompt-input" rows="2" placeholder="输入要交给 Codex 的任务..." disabled></textarea>
+        <button id="send-btn" class="primary-btn" type="submit" disabled>发送</button>
+        <div class="composer-options">
+          <label class="option-field project-field">
+            <span>项目目录</span>
+            <input id="cwd-input" list="cwd-options" placeholder="/root/project 或 C:\path\project" disabled>
+            <datalist id="cwd-options"></datalist>
+          </label>
+          <label class="option-field model-field">
+            <span>模型</span>
+            <select id="model-select" disabled>
+              <option value="">加载模型中...</option>
+            </select>
+          </label>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="codex-control.js"></script>
+</body>
+</html>
