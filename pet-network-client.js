@@ -45,12 +45,16 @@ class PetNetworkClient extends EventEmitter {
     store,
     WebSocketCtor = WebSocket,
     reconnect = true,
+    reconnectBaseDelay = 1000,
+    reconnectMaxDelay = 30000,
     appVersion = '2.2.0'
   } = {}) {
     super();
     this.store = store;
     this.WebSocketCtor = WebSocketCtor;
     this.reconnect = reconnect;
+    this.reconnectBaseDelay = reconnectBaseDelay;
+    this.reconnectMaxDelay = reconnectMaxDelay;
     this.appVersion = appVersion;
     this.socket = null;
     this.manualDisconnect = false;
@@ -147,7 +151,13 @@ class PetNetworkClient extends EventEmitter {
         socket.onerror = error => {
           if (socket !== this.socket) return;
           const message = error?.message || '联网服务连接失败';
-          const state = this.setState({ status: 'error', connected: false, error: message });
+          const canReconnect = this.canReconnect();
+          const state = this.setState({
+            status: canReconnect ? 'reconnecting' : 'error',
+            connected: false,
+            error: message
+          });
+          if (canReconnect) this.scheduleReconnect();
           settle(state);
         };
 
@@ -190,6 +200,7 @@ class PetNetworkClient extends EventEmitter {
   disconnect() {
     this.manualDisconnect = true;
     clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.closeSocket();
     return this.setState({
       mode: this.readConfig().mode,
@@ -201,13 +212,19 @@ class PetNetworkClient extends EventEmitter {
   }
 
   scheduleReconnect() {
-    if (!this.reconnect || this.manualDisconnect) return;
-    clearTimeout(this.reconnectTimer);
-    const delay = Math.min(30000, 1000 * (2 ** this.reconnectAttempt));
+    if (!this.canReconnect() || this.reconnectTimer) return;
+    const delay = Math.min(this.reconnectMaxDelay, this.reconnectBaseDelay * (2 ** this.reconnectAttempt));
     this.reconnectAttempt += 1;
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  canReconnect() {
+    if (!this.reconnect || this.manualDisconnect) return false;
+    const config = this.readConfig();
+    return config.mode === 'network' && config.enabled && Boolean(config.serverUrl);
   }
 
   handleMessage(raw) {

@@ -14,6 +14,13 @@
     :root {
       --pet-size: 92px;
       --pet-ratio: 1.083333;
+      --pet-pad: 12px;
+      --primary: #FF9800;
+      --primary-dark: #F57C00;
+      --text-main: #4A3728;
+      --bubble-bg: rgba(255, 255, 255, 0.98);
+      --shadow: 0 12px 32px rgba(139, 94, 60, 0.18);
+      --bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     body {
@@ -31,8 +38,8 @@
       height: 100%;
       display: flex;
       align-items: flex-end;
-      justify-content: flex-end;
-      padding: 6px 8px 8px;
+      justify-content: flex-start;
+      padding: var(--pet-pad);
       -webkit-app-region: no-drag;
     }
 
@@ -48,12 +55,12 @@
 
     #pet-shadow {
       position: absolute;
-      bottom: 2px;
-      right: calc(8px + (var(--pet-size) * 0.14));
+      right: calc(var(--pet-pad) + (var(--pet-size) * 0.14));
+      bottom: 4px;
       width: calc(var(--pet-size) * 0.72);
-      height: 18px;
+      height: 14px;
       border-radius: 999px;
-      background: radial-gradient(ellipse, rgba(80, 52, 25, 0.22), rgba(80, 52, 25, 0));
+      background: radial-gradient(ellipse, rgba(139, 94, 60, 0.25), rgba(139, 94, 60, 0));
       animation: shadowPulse 3.2s ease-in-out infinite;
       pointer-events: none;
     }
@@ -66,18 +73,20 @@
       background: transparent;
       cursor: pointer;
       -webkit-app-region: no-drag;
-      filter: drop-shadow(0 16px 18px rgba(74, 47, 22, 0.18));
-      transition: transform 0.18s ease, filter 0.18s ease;
+      filter: drop-shadow(0 12px 14px rgba(74, 47, 22, 0.15));
+      transition: transform 0.25s var(--bounce), filter 0.25s ease;
     }
 
     #pet-image:hover {
+      transform: scale(1.05) translateY(-4px);
       filter:
-        drop-shadow(0 18px 22px rgba(74, 47, 22, 0.22))
-        drop-shadow(0 0 8px rgba(255, 186, 73, 0.18));
+        drop-shadow(0 16px 20px rgba(74, 47, 22, 0.2))
+        drop-shadow(0 0 12px rgba(255, 186, 73, 0.25));
     }
 
     #pet-image:active {
       cursor: grabbing;
+      transform: scale(0.95);
     }
 
     #pet-sprite {
@@ -93,20 +102,20 @@
     #reminder-bubble {
       display: none;
       position: absolute;
-      right: calc(var(--pet-size) + 18px);
-      top: 8px;
+      right: calc(var(--pet-size) + var(--pet-pad) + 18px);
+      top: 16px;
       z-index: 4;
-      width: min(198px, calc(100vw - var(--pet-size) - 32px));
-      padding: 12px 13px;
-      border: 1px solid rgba(255, 152, 0, 0.22);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.97);
-      box-shadow: 0 16px 38px rgba(38, 26, 12, 0.2);
-      color: #3a2a18;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
-      backdrop-filter: blur(14px);
+      width: min(220px, calc(100vw - var(--pet-size) - 40px));
+      padding: 16px;
+      border: 2px solid #FFEBD6;
+      border-radius: 24px;
+      background: var(--bubble-bg);
+      box-shadow: var(--shadow);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      backdrop-filter: blur(12px);
       -webkit-app-region: no-drag;
-      animation: bubbleIn 0.22s ease;
+      animation: bubbleIn 0.4s var(--bounce);
     }
 
     #reminder-bubble.show {
@@ -116,221 +125,115 @@
     #reminder-bubble::after {
       content: "";
       position: absolute;
-      right: -8px;
-      bottom: 24px;
-      width: 15px;
-      height: 15px;
-      border-right: 1px solid rgba(255, 152, 0, 0.2);
-      border-top: 1px solid rgba(255, 152, 0, 0.2);
-      background: rgba(255, 255, 255, 0.97);
+      right: -10px;
+      top: 46px;
+      width: 16px;
+      height: 16px;
+      border-right: 2px solid #FFEBD6;
+      border-top: 2px solid #FFEBD6;
+      background: var(--bubble-bg);
       transform: rotate(45deg);
-    }
-
-    #reminder-bubble.attention {
-      animation: bubbleNudge 0.34s ease;
-    }
-
-    #reminder-bubble.network-bubble {
-      width: min(220px, calc(100vw - var(--pet-size) - 30px));
-      padding: 13px 14px 12px;
-      border-color: rgba(15, 118, 110, 0.2);
-      border-radius: 16px;
-      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
-    }
-
-    #reminder-bubble.network-bubble::after {
-      border-color: rgba(15, 118, 110, 0.18);
+      border-radius: 2px;
     }
 
     .reminder-title {
-      margin-bottom: 6px;
-      font-size: 15px;
-      font-weight: 700;
-      line-height: 1.35;
-      word-break: break-word;
-    }
-
-    #reminder-bubble.network-bubble .reminder-title {
-      margin-bottom: 9px;
+      margin-bottom: 8px;
       font-size: 16px;
-      line-height: 1.45;
-      font-weight: 750;
-      color: #24302f;
+      font-weight: 800;
+      line-height: 1.4;
+      color: var(--primary-dark);
     }
 
     .reminder-note {
       display: none;
-      margin-bottom: 7px;
-      font-size: 13px;
-      line-height: 1.4;
-      color: #6d5637;
+      margin-bottom: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #8D7665;
       white-space: pre-wrap;
-      word-break: break-word;
     }
 
-    .reminder-note.show {
-      display: block;
-    }
-
-    .reminder-time,
-    .reminder-queue {
+    .reminder-time {
       font-size: 12px;
-      line-height: 1.35;
-      color: #8a6a3a;
-    }
-
-    #reminder-bubble.network-bubble .reminder-time {
-      font-size: 12px;
-      color: #6b7b78;
-    }
-
-    #reminder-bubble.network-bubble .reminder-queue {
-      display: none;
-    }
-
-    .reminder-queue {
-      margin-top: 3px;
+      font-weight: 700;
+      color: #B49A7A;
     }
 
     .reminder-actions {
-      margin-top: 10px;
+      margin-top: 14px;
       display: flex;
       justify-content: flex-end;
     }
 
     #reminder-ack {
-      position: relative;
-      z-index: 2;
       border: none;
-      border-radius: 999px;
-      padding: 7px 14px;
-      background: #ff9800;
+      border-radius: 12px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
       color: #fff;
       cursor: pointer;
       font-size: 13px;
-      font-weight: 700;
-      box-shadow: 0 6px 14px rgba(255, 152, 0, 0.28);
+      font-weight: 800;
+      box-shadow: 0 4px 12px rgba(255, 152, 0, 0.25);
+      transition: all 0.2s var(--bounce);
     }
 
     #reminder-ack:hover {
-      background: #f08c00;
+      transform: scale(1.05);
+      box-shadow: 0 6px 16px rgba(255, 152, 0, 0.35);
     }
 
     #context-menu {
       display: none;
       position: fixed;
-      min-width: 104px;
-      max-width: 116px;
-      padding: 5px;
-      overflow: hidden;
-      border: 1px solid rgba(189, 143, 103, 0.26);
-      border-radius: 15px;
-      background: rgba(255, 255, 255, 0.88);
-      box-shadow:
-        0 18px 36px rgba(38, 26, 12, 0.22),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      min-width: 120px;
+      padding: 6px;
+      border: 2px solid #FFEBD6;
+      border-radius: 20px;
+      background: var(--bubble-bg);
+      box-shadow: var(--shadow);
       z-index: 1000;
-      backdrop-filter: blur(18px) saturate(1.15);
+      backdrop-filter: blur(18px);
+      animation: contextMenuIn 0.3s var(--bounce);
       -webkit-app-region: no-drag;
-      transform-origin: 12px 50%;
-      animation: contextMenuIn 0.16s ease;
     }
 
     #context-menu.show {
       display: block;
     }
 
-    #context-menu::before {
-      content: "";
-      position: absolute;
-      left: -6px;
-      top: 26px;
-      width: 14px;
-      height: 14px;
-      border-left: 1px solid rgba(189, 143, 103, 0.22);
-      border-bottom: 1px solid rgba(189, 143, 103, 0.22);
-      background: rgba(255, 255, 255, 0.88);
-      transform: rotate(45deg);
-      backdrop-filter: blur(18px);
-    }
-
     .menu-item {
-      position: relative;
-      z-index: 1;
       width: 100%;
       border: none;
-      border-radius: 11px;
-      padding: 9px 8px;
-      color: #3b2a1d;
+      border-radius: 14px;
+      padding: 10px;
+      color: var(--text-main);
       background: transparent;
       cursor: pointer;
       font-size: 14px;
-      font-weight: 650;
-      line-height: 1.2;
-      text-align: center;
-      transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      font-weight: 800;
+      transition: all 0.2s ease;
     }
 
     .menu-item:hover {
-      background: rgba(255, 152, 0, 0.14);
-      color: #d96f00;
-      transform: translateY(-1px);
-    }
-
-    .menu-item + .menu-item {
-      margin-top: 3px;
-    }
-
-    @keyframes shadowPulse {
-      0%, 100% {
-        transform: scaleX(1);
-        opacity: 0.72;
-      }
-      45% {
-        transform: scaleX(0.8);
-        opacity: 0.46;
-      }
-    }
-
-    @keyframes nudge {
-      0%, 100% {
-        transform: translateY(0) scale(1);
-      }
-      42% {
-        transform: translateY(-10px) scale(1.06);
-      }
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      transform: translateX(4px);
     }
 
     @keyframes bubbleIn {
-      from {
-        opacity: 0;
-        transform: translateY(8px) scale(0.96);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
-    }
-
-    @keyframes bubbleNudge {
-      0%, 100% {
-        transform: translateY(0);
-      }
-      45% {
-        transform: translateY(-5px);
-      }
+      from { opacity: 0; transform: translateY(12px) scale(0.9); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     @keyframes contextMenuIn {
-      from {
-        opacity: 0;
-        transform: translateX(-6px) scale(0.96);
-      }
-      to {
-        opacity: 1;
-        transform: translateX(0) scale(1);
-      }
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes shadowPulse {
+      0%, 100% { transform: scaleX(1); opacity: 0.25; }
+      50% { transform: scaleX(0.8); opacity: 0.15; }
     }
   </style>
 </head>
@@ -375,10 +278,7 @@
       openSettings: () => {},
       restartApp: () => {},
       quitApp: () => {},
-      dragPetWindow: (position) => {
-        window.__petDebug.dragCalls.push(position);
-        document.body.dataset.dragCalls = String(window.__petDebug.dragCalls.length);
-      },
+      dragPetWindow: (position) => {},
       logPetInteraction: () => {},
       storeGet: async () => null,
       acknowledgeReminder: async () => ({ success: true }),
@@ -390,11 +290,37 @@
       closePetNetworkBubble: () => {},
       onPetImageUpdated: () => {},
       onPetCharacterUpdated: () => {},
-      onPetSizeUpdated: () => {}
+      onPetSizeUpdated: () => {},
+      controlPetWindow: () => {}
     };
     const petAPI = { ...fallbackElectronAPI, ...(window.electronAPI || {}) };
+    
+    let currentState = 'idle';
+    let currentFrame = 0;
+    let animationTimer = null;
+    let currentPetSize = { width: 262, height: 132 }; // 默认 medium
+    let currentPetImageSize = 92;
+    let mouseStart = null;
+    let isMouseDown = false;
+    let isDraggingWindow = false;
+    let lastDragX = 0;
+    let suppressNextClick = false;
+    let isPetHovered = false;
+    let activeReminder = null;
+    let activeNetworkBubble = null;
+    let activeChatBubble = null;
+    let chatBubbleTimer = null;
+
     const closeContextMenu = () => {
-      contextMenu.classList.remove('show');
+      if (contextMenu.classList.contains('show')) {
+        contextMenu.classList.remove('show');
+        // 恢复窗口大小
+        petAPI.controlPetWindow('resize', {
+          width: currentPetSize.width,
+          height: currentPetSize.height,
+          anchor: 'bottom-left'
+        });
+      }
     };
 
     window.__petDebug = {
@@ -402,8 +328,6 @@
       dragCalls: [],
       states: []
     };
-    document.body.dataset.openChatCalls = '0';
-    document.body.dataset.dragCalls = '0';
 
     const spriteColumns = 8;
     const spriteRows = 9;
@@ -428,20 +352,6 @@
       running: { row: 7, frames: 6, fps: 9 },
       review: { row: 8, frames: 6, fps: 6 }
     };
-
-    let animationTimer = null;
-    let currentState = 'idle';
-    let currentFrame = 0;
-    let mouseStart = null;
-    let isMouseDown = false;
-    let isDraggingWindow = false;
-    let lastDragX = 0;
-    let suppressNextClick = false;
-    let isPetHovered = false;
-    let activeReminder = null;
-    let activeNetworkBubble = null;
-    let activeChatBubble = null;
-    let chatBubbleTimer = null;
 
     function applyPetCharacter(character) {
       const petCharacter = petCharacters[character] || petCharacters.bubu;
@@ -596,9 +506,9 @@
     }
 
     function openChat() {
+      // 即使有提醒也允许打开对话框
       if (activeReminder) {
         focusReminderBubble();
-        return;
       }
       playMomentaryState('waving', 900);
       window.__petDebug.openChatCalls += 1;
@@ -643,8 +553,8 @@
         clientY: event.clientY,
         screenX: event.screenX,
         screenY: event.screenY,
-        offsetX: event.clientX,
-        offsetY: event.clientY
+        offsetX: event.offsetX,
+        offsetY: event.offsetY
       };
       isMouseDown = true;
       isDraggingWindow = false;
@@ -670,11 +580,11 @@
       setPetState(nextState);
       logInteraction('drag', { x: event.screenX, y: event.screenY, direction: nextState });
       petAPI.dragPetWindow({
-        screenX: event.screenX,
-        screenY: event.screenY,
-        offsetX: mouseStart.offsetX,
-        offsetY: mouseStart.offsetY
+        deltaX: event.screenX - mouseStart.screenX,
+        deltaY: event.screenY - mouseStart.screenY
       });
+      mouseStart.screenX = event.screenX;
+      mouseStart.screenY = event.screenY;
     });
 
     window.addEventListener('mouseup', (event) => {
@@ -690,11 +600,7 @@
         logInteraction('drag-end');
       } else {
         logInteraction('click-release');
-        if (activeReminder) {
-          focusReminderBubble();
-        } else {
-          openChat();
-        }
+        openChat();
       }
     });
 
@@ -728,32 +634,38 @@
       event.preventDefault();
       event.stopPropagation();
 
-      let menuX = event.clientX + 36;
-      let menuY = event.clientY;
-      const menuWidth = 116;
+      // 在显示菜单前，先扩充窗口宽度（扩充到 450px 宽度，高度不变）
+      // 这样菜单可以放在左边，宠物在右边，互不干扰
+      petAPI.controlPetWindow('resize', {
+        width: 450,
+        height: currentPetSize.height
+      });
+
+      const menuWidth = 120;
       const menuHeight = 84;
-
-      if (menuX + menuWidth > window.innerWidth) {
-        menuX = Math.max(5, window.innerWidth - menuWidth - 5);
-      }
-
-      if (menuY + menuHeight > window.innerHeight) {
-        menuY = Math.max(5, window.innerHeight - menuHeight - 5);
-      }
+      
+      // 菜单位置：固定在扩充后的窗口最左侧，完全避开宠物
+      let menuX = 20; 
+      let menuY = window.innerHeight - menuHeight - 10;
 
       contextMenu.style.left = `${menuX}px`;
       contextMenu.style.top = `${menuY}px`;
       contextMenu.classList.add('show');
     });
 
-    document.addEventListener('pointerdown', (event) => {
-      if (contextMenu.contains(event.target)) return;
-      closeContextMenu();
-    }, true);
+    // 捕获全局点击，确保在透明区域点击也能关闭菜单
+    window.addEventListener('mousedown', (event) => {
+      if (contextMenu.classList.contains('show')) {
+        if (!contextMenu.contains(event.target) && !petImage.contains(event.target)) {
+          closeContextMenu();
+        }
+      }
+    });
 
     document.addEventListener('click', (event) => {
-      if (contextMenu.contains(event.target)) return;
-      closeContextMenu();
+      if (contextMenu.classList.contains('show') && !contextMenu.contains(event.target)) {
+        closeContextMenu();
+      }
     });
 
     document.getElementById('menu-restart').addEventListener('click', () => {
@@ -821,6 +733,10 @@
 
     petAPI.onPetSizeUpdated((imageSize) => {
       document.documentElement.style.setProperty('--pet-size', `${imageSize}px`);
+      // 同步更新窗口大小记录
+      const windowSizes = { 72: { w: 238, h: 105 }, 92: { w: 262, h: 132 }, 116: { w: 288, h: 163 } };
+      const wSize = windowSizes[imageSize] || windowSizes[92];
+      currentPetSize = { width: wSize.w, height: wSize.h };
     });
 
     petAPI.onReminderDue(showReminderBubble);
@@ -831,7 +747,13 @@
     async function loadSavedPetSize() {
       const size = await petAPI.storeGet('petSize') || 'medium';
       const sizes = { small: 72, medium: 92, large: 116 };
-      document.documentElement.style.setProperty('--pet-size', `${sizes[size] || sizes.medium}px`);
+      const windowSizes = { small: { w: 238, h: 105 }, medium: { w: 262, h: 132 }, large: { w: 288, h: 163 } };
+      
+      const imageSize = sizes[size] || sizes.medium;
+      const wSize = windowSizes[size] || windowSizes.medium;
+      
+      document.documentElement.style.setProperty('--pet-size', `${imageSize}px`);
+      currentPetSize = { width: wSize.w, height: wSize.h };
     }
 
     async function loadSavedPetCharacter() {

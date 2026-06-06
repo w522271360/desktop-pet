@@ -90,6 +90,87 @@ test('reports connection errors without throwing to callers', async () => {
   assert.match(result.error, /connect failed/i);
 });
 
+test('opens websocket when persisted network mode is enabled', async () => {
+  let openedUrl = '';
+  const store = {
+    dataDirectory: '/tmp/desktop-pet-client-test',
+    get(key, fallback) {
+      const values = {
+        petAppMode: 'network',
+        petNetworkEnabled: true,
+        petServerUrl: 'ws://127.0.0.1:17890',
+        petNetworkNickname: 'Alice'
+      };
+      return Object.hasOwn(values, key) ? values[key] : fallback;
+    },
+    set() {}
+  };
+
+  class ManualSocket {
+    constructor(url) {
+      openedUrl = url;
+      this.readyState = 1;
+      this.OPEN = 1;
+    }
+    send() {}
+    close() {}
+  }
+
+  const client = createPetNetworkClient({
+    store,
+    WebSocketCtor: ManualSocket,
+    reconnect: false
+  });
+
+  const state = await client.connect();
+  assert.equal(openedUrl, 'ws://127.0.0.1:17890/ws');
+  assert.equal(state.status, 'connecting');
+  client.disconnect();
+});
+
+test('schedules reconnect when websocket reports an error without closing', async () => {
+  const sockets = [];
+  const store = {
+    dataDirectory: '/tmp/desktop-pet-client-test',
+    get(key, fallback) {
+      const values = {
+        petAppMode: 'network',
+        petNetworkEnabled: true,
+        petServerUrl: 'ws://127.0.0.1:17890',
+        petNetworkNickname: 'Alice'
+      };
+      return Object.hasOwn(values, key) ? values[key] : fallback;
+    },
+    set() {}
+  };
+
+  class ErrorOnlySocket {
+    constructor() {
+      this.readyState = 0;
+      this.OPEN = 1;
+      sockets.push(this);
+      setTimeout(() => this.onerror?.(new Error('network down')), 0);
+    }
+    send() {}
+    close() {}
+  }
+
+  const client = createPetNetworkClient({
+    store,
+    WebSocketCtor: ErrorOnlySocket,
+    reconnectBaseDelay: 5,
+    reconnectMaxDelay: 5
+  });
+
+  const state = await client.connect();
+  assert.equal(state.status, 'reconnecting');
+  assert.match(state.error, /network down/);
+
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.ok(sockets.length >= 2);
+  client.disconnect();
+});
+
 test('ignores stale socket close events after a newer connection exists', async () => {
   const sockets = [];
   const store = {

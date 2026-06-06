@@ -128,7 +128,7 @@ npm run menu:custom
 启动示例：
 
 ```bash
-npm run server -- --host 0.0.0.0 --port 17890 --admin-token dushi1117
+npm run server -- --host 0.0.0.0 --port 17890 --admin-token 11171123
 ```
 
 管理页面地址示例：

@@ -149,16 +149,22 @@ function getPetWindowSize(size = store.get('petSize', 'medium'), expanded = fals
 function resizePetWindowForReminder(expanded) {
   if (!petWindow || petWindow.isDestroyed()) return;
 
+  const bounds = petWindow.getBounds();
+  // 如果当前窗口宽度已经很大（说明正在显示右键菜单），则不要通过定时器自动缩小它
+  if (bounds.width > 400 && !expanded) {
+    return;
+  }
+
   const petSize = store.get('petSize', 'medium');
   const nextSize = getPetWindowSize(petSize, expanded);
-  const bounds = petWindow.getBounds();
+  const anchorX = bounds.x + bounds.width;
   const anchorY = bounds.y + bounds.height;
 
   petWindow.setBounds({
-    x: bounds.x,
+    x: Math.round(anchorX - nextSize.width),
     y: Math.round(anchorY - nextSize.height),
-    width: nextSize.width,
-    height: nextSize.height
+    width: Math.round(nextSize.width),
+    height: Math.round(nextSize.height)
   });
 }
 
