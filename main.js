@@ -236,6 +236,12 @@ function showPetNetworkBubble(payload) {
   });
 }
 
+function shouldShowIncomingPetChatBubble(payload) {
+  const currentClientId = petNetworkClient.getState().clientId;
+  const senderClientId = payload?.from?.clientId;
+  return Boolean(payload?.text) && (!senderClientId || senderClientId !== currentClientId);
+}
+
 function openPetNetworkDetail(payload) {
   pendingPetNetworkDetail = payload || null;
   createChatWindow();
@@ -262,6 +268,9 @@ petNetworkClient.on('users', users => {
   broadcastPetNetwork('pet-network-users-changed', users);
 });
 petNetworkClient.on('chat', payload => {
+  if (shouldShowIncomingPetChatBubble(payload)) {
+    showPetNetworkBubble(payload);
+  }
   broadcastPetNetwork('pet-network-chat', payload);
 });
 petNetworkClient.on('notice', payload => {
@@ -315,6 +324,7 @@ function createPetWindow() {
     transparent: true,
     frame: false,
     type: 'toolbar',
+    hasShadow: false,
     alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
     focusable: true,

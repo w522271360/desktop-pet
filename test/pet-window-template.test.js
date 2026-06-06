@@ -15,6 +15,7 @@ test('pet window renderer keeps live template expressions', () => {
   assert.match(source, /#reminder-bubble\s*\{[\s\S]*?right: calc\(var\(--pet-size\) \+ var\(--pet-pad\) \+ 18px\);/);
   assert.match(source, /#reminder-bubble\s*\{[\s\S]*?top: 16px;/);
   assert.match(source, /#reminder-bubble::after\s*\{[\s\S]*?top: 46px;/);
+  assert.match(source, /\.reminder-note\.show\s*\{[\s\S]*?display: block;/);
   assert.match(source, /#reminder-bubble\.network-bubble\s*\{[\s\S]*?right: calc\(var\(--pet-size\) \+ 8px\);/);
   assert.match(source, /#reminder-bubble\.network-bubble\s*\{[\s\S]*?bottom: calc\(var\(--pet-pad\) \+ \(var\(--pet-size\) \* 0\.58\)\);/);
   assert.match(source, /#reminder-bubble\.network-bubble\s*\{[\s\S]*?max-width: min\(168px, calc\(100vw - var\(--pet-size\) - 44px\)\);/);

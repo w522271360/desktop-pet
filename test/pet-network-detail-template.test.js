@@ -15,6 +15,8 @@ test('pet network bubble opens the chat network detail panel', () => {
   assert.match(mainSource, /function openPetNetworkDetail\(payload\) \{[\s\S]*?createChatWindow\(\);/);
   assert.match(mainSource, /chatWindow\.webContents\.send\('open-pet-network-detail', pendingPetNetworkDetail\);/);
   assert.match(mainSource, /ipcMain\.on\('open-pet-network-detail', \(event, payload\) => \{[\s\S]*?openPetNetworkDetail\(payload\);/);
+  assert.match(mainSource, /function shouldShowIncomingPetChatBubble\(payload\) \{[\s\S]*?senderClientId !== currentClientId/);
+  assert.match(mainSource, /petNetworkClient\.on\('chat', payload => \{[\s\S]*?showPetNetworkBubble\(payload\);[\s\S]*?broadcastPetNetwork\('pet-network-chat', payload\);/);
   assert.match(chatSource, /function openNetworkChatDetail\(payload = \{\}\) \{[\s\S]*?networkChatPanel\?\.classList\.remove\('collapsed'\);/);
   assert.match(chatSource, /const networkMessageItems = new Map\(\);/);
   assert.match(chatSource, /function getNetworkMessageKey\(payload = \{\}, type = 'chat'\)/);
