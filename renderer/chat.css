@@ -1724,6 +1724,19 @@ body.dark-mode .template-quick-btn:hover {
   background: #fffbeb;
 }
 
+.network-chat-message.highlight {
+  animation: networkMessageFocus 1.15s ease;
+}
+
+@keyframes networkMessageFocus {
+  0%, 100% {
+    box-shadow: none;
+  }
+  18%, 72% {
+    box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.24);
+  }
+}
+
 .network-chat-compose {
   display: flex;
   gap: 8px;

@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('open-chat');
   },
 
+  openPetNetworkDetail: (payload) => {
+    ipcRenderer.send('open-pet-network-detail', payload);
+  },
+
   pasteToChat: () => {
     ipcRenderer.send('paste-to-chat');
   },
@@ -405,6 +409,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onPetNetworkBubble: (callback) => {
     ipcRenderer.on('pet-network-bubble', (event, payload) => callback(payload));
+  },
+  onOpenPetNetworkDetail: (callback) => {
+    ipcRenderer.on('open-pet-network-detail', (event, payload) => callback(payload));
   },
   sendPetChatBubble: (payload) => {
     ipcRenderer.send('pet-chat-bubble', payload);

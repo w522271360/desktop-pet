@@ -76,6 +76,7 @@ let userScrolled = false;
 let programmaticScroll = false; // 标记是否是程序触发的滚动
 let chatInputComposing = false;
 let networkInputComposing = false;
+const networkMessageItems = new Map();
 
 // 初始化
 async function initializeApp() {
@@ -501,7 +502,10 @@ function renderNetworkChatState(state = petNetworkState) {
   networkChatToggleBtn?.classList.toggle('hidden', !isNetworkMode);
   if (!isNetworkMode) {
     networkChatPanel?.classList.add('collapsed');
-    if (networkChatMessages) networkChatMessages.innerHTML = '';
+    if (networkChatMessages) {
+      networkChatMessages.innerHTML = '';
+      networkMessageItems.clear();
+    }
     if (networkChatInput) networkChatInput.value = '';
   }
   if (networkChatStatus) {
@@ -538,14 +542,46 @@ function renderNetworkUsers(users) {
   });
 }
 
+function getNetworkMessageKey(payload = {}, type = 'chat') {
+  const sender = payload.from?.clientId || payload.from?.nickname || (type === 'system' ? 'system' : 'self');
+  return `${type}:${payload.sentAt || ''}:${sender}:${payload.text || ''}`;
+}
+
+function focusNetworkMessage(item) {
+  if (!item) return;
+  item.classList.remove('highlight');
+  void item.offsetWidth;
+  item.classList.add('highlight');
+  item.scrollIntoView({ block: 'nearest' });
+}
+
 function appendNetworkMessage(payload, type = 'chat') {
   if (!networkChatMessages) return;
+  const messageKey = getNetworkMessageKey(payload, type);
+  const existingItem = networkMessageItems.get(messageKey);
+  if (existingItem) {
+    focusNetworkMessage(existingItem);
+    return;
+  }
+
   const item = document.createElement('div');
   item.className = `network-chat-message ${type === 'system' ? 'system' : ''}`;
+  if (payload?.highlight) {
+    item.classList.add('highlight');
+  }
   const sender = payload.from?.nickname || (type === 'system' ? '系统' : '我');
   item.textContent = `${sender}：${payload.text || ''}`;
+  item.dataset.messageKey = messageKey;
   networkChatMessages.appendChild(item);
+  networkMessageItems.set(messageKey, item);
   networkChatMessages.scrollTop = networkChatMessages.scrollHeight;
+}
+
+function openNetworkChatDetail(payload = {}) {
+  networkChatPanel?.classList.remove('collapsed');
+  if (payload.text) {
+    appendNetworkMessage({ ...payload, highlight: true }, 'system');
+  }
 }
 
 async function sendNetworkChat() {
@@ -568,6 +604,7 @@ async function initializeNetworkChat() {
   window.electronAPI.onPetNetworkUsersChanged?.(users => renderNetworkChatState({ users }));
   window.electronAPI.onPetNetworkChat?.(payload => appendNetworkMessage(payload));
   window.electronAPI.onPetNetworkNotice?.(payload => appendNetworkMessage(payload, 'system'));
+  window.electronAPI.onOpenPetNetworkDetail?.(openNetworkChatDetail);
 }
 
 // 加载主题

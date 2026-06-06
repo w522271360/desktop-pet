@@ -46,7 +46,7 @@
     #pet-stage {
       position: relative;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: flex-end;
       width: 100%;
       height: 100%;
@@ -136,6 +136,51 @@
       border-radius: 2px;
     }
 
+    #reminder-bubble.network-bubble {
+      top: auto;
+      right: calc(var(--pet-size) + 8px);
+      bottom: calc(var(--pet-pad) + (var(--pet-size) * 0.58));
+      width: auto;
+      min-width: 86px;
+      max-width: min(168px, calc(100vw - var(--pet-size) - 44px));
+      padding: 9px 12px 8px;
+      border: 1px solid rgba(140, 82, 35, 0.12);
+      border-radius: 20px 20px 8px 20px;
+      background: linear-gradient(180deg, rgba(255, 254, 251, 0.98), rgba(255, 247, 235, 0.96));
+      box-shadow: 0 10px 22px rgba(74, 47, 22, 0.12);
+      cursor: pointer;
+      animation: networkBubbleIn 0.28s var(--bounce);
+    }
+
+    #reminder-bubble.network-bubble::after {
+      right: -6px;
+      top: auto;
+      bottom: 14px;
+      width: 11px;
+      height: 11px;
+      border-right: 1px solid rgba(140, 82, 35, 0.12);
+      border-top: 1px solid rgba(140, 82, 35, 0.12);
+      background: rgba(255, 247, 235, 0.96);
+    }
+
+    #reminder-bubble.network-bubble .reminder-title {
+      margin-bottom: 4px;
+      font-size: 16px;
+      line-height: 1.25;
+      color: #5C3B23;
+      word-break: break-word;
+    }
+
+    #reminder-bubble.network-bubble .reminder-time {
+      font-size: 10px;
+      line-height: 1.2;
+      color: rgba(141, 105, 68, 0.72);
+    }
+
+    #reminder-bubble.network-bubble .reminder-actions {
+      display: none;
+    }
+
     .reminder-title {
       margin-bottom: 8px;
       font-size: 16px;
@@ -185,17 +230,33 @@
 
     #context-menu {
       display: none;
-      position: fixed;
-      min-width: 120px;
-      padding: 6px;
-      border: 2px solid #FFEBD6;
-      border-radius: 20px;
-      background: var(--bubble-bg);
-      box-shadow: var(--shadow);
+      position: absolute;
+      right: calc(var(--pet-size) + var(--pet-pad) + 14px);
+      bottom: calc(var(--pet-pad) + 8px);
+      width: 132px;
+      padding: 5px;
+      border: 1px solid rgba(140, 82, 35, 0.12);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 254, 251, 0.98), rgba(255, 247, 235, 0.96));
+      box-shadow: 0 12px 26px rgba(74, 47, 22, 0.14);
       z-index: 1000;
       backdrop-filter: blur(18px);
       animation: contextMenuIn 0.3s var(--bounce);
       -webkit-app-region: no-drag;
+    }
+
+    #context-menu::after {
+      content: "";
+      position: absolute;
+      right: -6px;
+      bottom: 28px;
+      width: 11px;
+      height: 11px;
+      border-right: 1px solid rgba(140, 82, 35, 0.12);
+      border-top: 1px solid rgba(140, 82, 35, 0.12);
+      border-radius: 2px;
+      background: rgba(255, 247, 235, 0.96);
+      transform: rotate(45deg);
     }
 
     #context-menu.show {
@@ -206,11 +267,11 @@
       width: 100%;
       border: none;
       border-radius: 14px;
-      padding: 10px;
+      padding: 9px 10px;
       color: var(--text-main);
       background: transparent;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 800;
       transition: all 0.2s ease;
     }
@@ -224,6 +285,11 @@
     @keyframes bubbleIn {
       from { opacity: 0; transform: translateY(12px) scale(0.9); }
       to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes networkBubbleIn {
+      from { opacity: 0; transform: translate(8px, 6px) scale(0.92); }
+      to { opacity: 1; transform: translate(0, 0) scale(1); }
     }
 
     @keyframes contextMenuIn {
@@ -276,6 +342,7 @@
       pasteToChat: () => {},
       focusPetWindow: () => {},
       openSettings: () => {},
+      openPetNetworkDetail: () => {},
       restartApp: () => {},
       quitApp: () => {},
       dragPetWindow: (position) => {},
@@ -318,7 +385,7 @@
         petAPI.controlPetWindow('resize', {
           width: currentPetSize.width,
           height: currentPetSize.height,
-          anchor: 'bottom-left'
+          anchor: 'bottom-right'
         });
       }
     };
@@ -371,6 +438,12 @@
       });
     }
 
+    function truncateNetworkBubbleText(text, limit = 20) {
+      const characters = Array.from(String(text || '').trim().replace(/\s+/g, ' '));
+      if (characters.length <= limit) return characters.join('');
+      return `${characters.slice(0, limit).join('')}...`;
+    }
+
     function focusReminderBubble() {
       if (!activeReminder) return;
       reminderBubble.classList.remove('attention');
@@ -384,6 +457,7 @@
       const reminder = payload?.reminder;
       if (!reminder) return;
       activeReminder = reminder;
+      reminderBubble.removeAttribute('title');
       reminderBubble.classList.remove('network-bubble');
       reminderTitle.textContent = reminder.title;
       reminderNote.textContent = reminder.note || '';
@@ -400,6 +474,7 @@
       activeNetworkBubble = null;
       activeChatBubble = null;
       clearTimeout(chatBubbleTimer);
+      reminderBubble.removeAttribute('title');
       reminderBubble.classList.remove('show', 'attention', 'network-bubble');
       reminderTitle.textContent = '';
       reminderNote.textContent = '';
@@ -414,11 +489,12 @@
       activeNetworkBubble = payload;
       activeReminder = null;
       const source = payload.from?.nickname || '服务端';
+      reminderBubble.setAttribute('title', payload.text);
       reminderBubble.classList.add('network-bubble');
-      reminderTitle.textContent = payload.text;
+      reminderTitle.textContent = truncateNetworkBubbleText(payload.text, 20);
       reminderNote.textContent = '';
       reminderNote.classList.remove('show');
-      reminderTime.textContent = `-- 来自 ${source}`;
+      reminderTime.textContent = `来自 ${source}`;
       reminderQueue.textContent = '';
       reminderBubble.classList.add('show');
       playMomentaryState('waiting', 900);
@@ -443,6 +519,7 @@
       activeChatBubble = payload;
       activeNetworkBubble = null;
       clearTimeout(chatBubbleTimer);
+      reminderBubble.removeAttribute('title');
       reminderBubble.classList.remove('network-bubble');
       reminderTitle.textContent = payload.title || '小秘书';
       reminderNote.textContent = payload.text;
@@ -634,22 +711,13 @@
       event.preventDefault();
       event.stopPropagation();
 
-      // 在显示菜单前，先扩充窗口宽度（扩充到 450px 宽度，高度不变）
-      // 这样菜单可以放在左边，宠物在右边，互不干扰
+      // 按右下角扩宽，宠物保持原位，菜单作为独立浮层贴在宠物左侧。
       petAPI.controlPetWindow('resize', {
-        width: 450,
-        height: currentPetSize.height
+        width: Math.max(currentPetSize.width, 300),
+        height: currentPetSize.height,
+        anchor: 'bottom-right'
       });
 
-      const menuWidth = 120;
-      const menuHeight = 84;
-      
-      // 菜单位置：固定在扩充后的窗口最左侧，完全避开宠物
-      let menuX = 20; 
-      let menuY = window.innerHeight - menuHeight - 10;
-
-      contextMenu.style.left = `${menuX}px`;
-      contextMenu.style.top = `${menuY}px`;
       contextMenu.classList.add('show');
     });
 
@@ -694,6 +762,16 @@
       if (!activeNetworkBubble || activeReminder) return;
       event.preventDefault();
       event.stopPropagation();
+      petAPI.openPetNetworkDetail(activeNetworkBubble);
+      hideReminderBubble();
+      petAPI.closePetNetworkBubble();
+    });
+
+    reminderBubble.addEventListener('click', (event) => {
+      if (!activeNetworkBubble || activeReminder) return;
+      event.preventDefault();
+      event.stopPropagation();
+      petAPI.openPetNetworkDetail(activeNetworkBubble);
       hideReminderBubble();
       petAPI.closePetNetworkBubble();
     });

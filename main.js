@@ -30,6 +30,7 @@ let petWindow = null;
 let chatWindow = null;
 let chatWindowReady = false;
 let pendingExternalPaste = null;
+let pendingPetNetworkDetail = null;
 let settingsWindow = null;
 let screenshotSelectorWindow = null;
 let deepseekLoginWindow = null;
@@ -137,9 +138,16 @@ const petSizeConfig = {
   large: { width: 288, height: 163 }
 };
 
-function getPetWindowSize(size = store.get('petSize', 'medium'), expanded = false) {
+function getPetWindowSize(size = store.get('petSize', 'medium'), expanded = false, variant = 'reminder') {
   const compact = petSizeConfig[size] || petSizeConfig.medium;
   if (!expanded) return compact;
+
+  if (variant === 'network') {
+    return {
+      width: Math.max(compact.width, 318),
+      height: compact.height + 66
+    };
+  }
 
   return {
     width: Math.max(compact.width, 330),
@@ -147,7 +155,7 @@ function getPetWindowSize(size = store.get('petSize', 'medium'), expanded = fals
   };
 }
 
-function resizePetWindowForReminder(expanded) {
+function resizePetWindowForReminder(expanded, variant = 'reminder') {
   if (!petWindow || petWindow.isDestroyed()) return;
 
   const bounds = petWindow.getBounds();
@@ -157,7 +165,7 @@ function resizePetWindowForReminder(expanded) {
   }
 
   const petSize = store.get('petSize', 'medium');
-  const nextSize = getPetWindowSize(petSize, expanded);
+  const nextSize = getPetWindowSize(petSize, expanded, variant);
   const anchorX = bounds.x + bounds.width;
   const anchorY = bounds.y + bounds.height;
 
@@ -219,13 +227,23 @@ function broadcastPetNetworkState() {
 }
 
 function showPetNetworkBubble(payload) {
-  resizePetWindowForReminder(true);
+  resizePetWindowForReminder(true, 'network');
   sendToWindow(petWindow, 'pet-network-bubble', {
     title: payload?.title || '联网消息',
     text: payload?.text || '',
     from: payload?.from || null,
     sentAt: payload?.sentAt || new Date().toISOString()
   });
+}
+
+function openPetNetworkDetail(payload) {
+  pendingPetNetworkDetail = payload || null;
+  createChatWindow();
+
+  if (chatWindowReady && chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('open-pet-network-detail', pendingPetNetworkDetail);
+    pendingPetNetworkDetail = null;
+  }
 }
 
 function showPetChatBubble(payload) {
@@ -422,6 +440,7 @@ function createChatWindow() {
   chatWindow.on('closed', () => {
     chatWindow = null;
     chatWindowReady = false;
+    pendingPetNetworkDetail = null;
   });
 }
 
@@ -1401,6 +1420,10 @@ ipcMain.on('open-chat', () => {
   createChatWindow();
 });
 
+ipcMain.on('open-pet-network-detail', (event, payload) => {
+  openPetNetworkDetail(payload);
+});
+
 ipcMain.on('paste-to-chat', () => {
   const image = clipboard.readImage();
   if (!image.isEmpty()) {
@@ -1433,9 +1456,17 @@ ipcMain.on('focus-pet-window', () => {
 ipcMain.on('chat-ready-for-paste', () => {
   chatWindowReady = true;
 
-  if (!pendingExternalPaste || !chatWindow || chatWindow.isDestroyed()) return;
-  chatWindow.webContents.send('external-paste', pendingExternalPaste);
-  pendingExternalPaste = null;
+  if (!chatWindow || chatWindow.isDestroyed()) return;
+
+  if (pendingExternalPaste) {
+    chatWindow.webContents.send('external-paste', pendingExternalPaste);
+    pendingExternalPaste = null;
+  }
+
+  if (pendingPetNetworkDetail) {
+    chatWindow.webContents.send('open-pet-network-detail', pendingPetNetworkDetail);
+    pendingPetNetworkDetail = null;
+  }
 });
 
 ipcMain.on('open-settings', () => {
