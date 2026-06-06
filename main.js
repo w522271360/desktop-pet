@@ -45,6 +45,7 @@ let codexAppServerConnectPromise = null;
 let codexAppServerInitialized = false;
 let codexAppServerBridgeReady = false;
 let codexAppServerBridgeBuffer = '';
+let codexAppServerBridgeLastError = null;
 let reminderCheckTimer = null;
 let activeReminderId = null;
 let isAppQuitting = false;
@@ -298,7 +299,7 @@ function createPetWindow() {
     type: 'toolbar',
     alwaysOnTop: process.argv.includes('--dev') ? true : alwaysOnTop,
     resizable: false,
-    focusable: false,
+    focusable: true,
     skipTaskbar: true,
     show: false,
     minimizable: false,
@@ -541,6 +542,7 @@ function sendCodexAppServerStatus(payload) {
   });
 }
 
+
 function rejectCodexAppServerPending(error) {
   codexAppServerPending.forEach((pending) => {
     clearTimeout(pending.timer);
@@ -549,9 +551,31 @@ function rejectCodexAppServerPending(error) {
   codexAppServerPending.clear();
 }
 
+function isLocalHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+}
+
+function formatCodexAppServerConnectionError(error, targetUrl) {
+  const rawMessage = error?.message || String(error || 'app-server connection failed');
+  let parsedUrl = null;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (_) {}
+
+  if (/Client network socket disconnected before secure TLS connection was established/i.test(rawMessage)) {
+    if (parsedUrl?.protocol === 'wss:' && parsedUrl.hostname && isLocalHostname(parsedUrl.hostname)) {
+      return `TLS 握手失败：当前地址是 ${targetUrl}。本地 app-server 通常应使用 ws:// 而不是 wss://，请把地址改成 ws://${parsedUrl.host}${parsedUrl.pathname || ''}${parsedUrl.search || ''}`;
+    }
+    return `TLS 握手失败：当前地址是 ${targetUrl}。如果这是本地或内网 app-server，请改用 ws://；如果这是公网 wss:// 地址，请检查证书链、域名匹配和反向代理的 WebSocket TLS 配置。原始错误：${rawMessage}`;
+  }
+
+  return rawMessage;
+}
+
 function closeCodexAppServerConnection(reason = 'closed') {
   codexAppServerInitialized = false;
   codexAppServerBridgeReady = false;
+  codexAppServerBridgeLastError = null;
   codexAppServerConnectPromise = null;
   rejectCodexAppServerPending(new Error(reason));
   if (codexAppServerProcess && !codexAppServerProcess.killed) {
@@ -592,23 +616,61 @@ function codexAppServerNotify(method, params = {}) {
 }
 
 function getCodexAppServerBridgeScript() {
+  const wsModulePath = JSON.stringify(require.resolve('ws'));
   return [
     "const readline = require('readline');",
+    `const WebSocketImpl = globalThis.WebSocket || require(${wsModulePath});`,
     'let ws = null;',
     "function send(payload) { process.stdout.write(JSON.stringify(payload) + '\\n'); }",
     'function closeWs() { if (!ws) return; try { ws.close(); } catch (_) {} ws = null; }',
+    "function getMessageText(message) {",
+    "  if (typeof message === 'string') return message;",
+    "  if (message && typeof message.data === 'string') return message.data;",
+    "  if (Buffer.isBuffer(message)) return message.toString('utf8');",
+    "  if (message instanceof ArrayBuffer) return Buffer.from(message).toString('utf8');",
+    "  if (ArrayBuffer.isView(message)) return Buffer.from(message.buffer, message.byteOffset, message.byteLength).toString('utf8');",
+    "  if (message && Buffer.isBuffer(message.data)) return message.data.toString('utf8');",
+    "  if (message && message.data instanceof ArrayBuffer) return Buffer.from(message.data).toString('utf8');",
+    "  if (message && ArrayBuffer.isView(message.data)) return Buffer.from(message.data.buffer, message.data.byteOffset, message.data.byteLength).toString('utf8');",
+    "  return String(message && message.data !== undefined ? message.data : message);",
+    '}',
+    "function addSocketListener(target, event, listener, options) {",
+    "  if (typeof target.addEventListener === 'function') {",
+    '    target.addEventListener(event, listener, options);',
+    '    return;',
+    '  }',
+    "  if (typeof target.once === 'function' && options && options.once) {",
+    '    target.once(event, listener);',
+    '    return;',
+    '  }',
+    "  if (typeof target.on === 'function') target.on(event, listener);",
+    '}',
     "async function connect(url) {",
     '  closeWs();',
-    "  if (typeof WebSocket !== 'function') { throw new Error('This Node.js runtime does not provide WebSocket.'); }",
-    '  ws = new WebSocket(url);',
-    "  ws.addEventListener('open', () => send({ type: 'open' }), { once: true });",
-    "  ws.addEventListener('message', (event) => {",
-    "    const text = typeof event.data === 'string' ? event.data : String(event.data);",
-    "    try { send({ type: 'message', message: JSON.parse(text) }); }",
-    "    catch (error) { send({ type: 'error', message: 'Invalid app-server JSON: ' + error.message }); }",
+    "  if (typeof WebSocketImpl !== 'function') { throw new Error('No WebSocket implementation available.'); }",
+    '  await new Promise((resolve, reject) => {',
+    '    let settled = false;',
+    "    const fail = (error) => { if (settled) return; settled = true; reject(error instanceof Error ? error : new Error(String(error || 'WebSocket error'))); };",
+    '    ws = new WebSocketImpl(url);',
+    "    addSocketListener(ws, 'open', () => { if (settled) return; settled = true; send({ type: 'open' }); resolve(); }, { once: true });",
+    "    addSocketListener(ws, 'error', (error) => {",
+    "      const message = error && error.message ? error.message : 'WebSocket error';",
+    "      send({ type: 'error', message });",
+    '      fail(new Error(message));',
+    "    }, { once: true });",
+    "    addSocketListener(ws, 'close', (event) => {",
+    "      const code = event && typeof event.code === 'number' ? event.code : 'unknown';",
+    "      const reason = event && event.reason ? String(event.reason) : '';",
+    "      const message = reason ? `WebSocket closed (${code}): ${reason}` : `WebSocket closed (${code})`;",
+    "      if (!settled) fail(new Error(message));",
+    "      send({ type: 'close', code, reason });",
+    "    });",
+    "    addSocketListener(ws, 'message', (event) => {",
+    "      const text = getMessageText(event);",
+    "      try { send({ type: 'message', message: JSON.parse(text) }); }",
+    "      catch (error) { send({ type: 'error', message: 'Invalid app-server JSON: ' + error.message }); }",
+    '    });',
     '  });',
-    "  ws.addEventListener('error', () => send({ type: 'error', message: 'WebSocket error' }));",
-    "  ws.addEventListener('close', () => send({ type: 'close' }));",
     '}',
     'const rl = readline.createInterface({ input: process.stdin });',
     "rl.on('line', async (line) => {",
@@ -618,7 +680,7 @@ function getCodexAppServerBridgeScript() {
     "    if (message.type === 'connect') { await connect(message.url); return; }",
     "    if (message.type === 'close') { closeWs(); return; }",
     "    if (message.type === 'send') {",
-    "      if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket is not open');",
+    "      if (!ws || ws.readyState !== WebSocketImpl.OPEN) throw new Error('WebSocket is not open');",
     '      ws.send(JSON.stringify(message.message));',
     '    }',
     "  } catch (error) { send({ type: 'error', message: error.message }); }",
@@ -641,7 +703,17 @@ function writeCodexAppServerBridgeScript() {
 }
 
 function findSystemNodeExecutable() {
-  if (process.platform !== 'win32') return 'node';
+  if (process.platform !== 'win32') {
+    try {
+      const output = childProcess.execFileSync('which', ['node'], {
+        encoding: 'utf8'
+      });
+      const candidate = output.split(/\r?\n/).map(item => item.trim()).find(Boolean);
+      return candidate || null;
+    } catch (_) {
+      return null;
+    }
+  }
   try {
     const output = childProcess.execFileSync('where', ['node'], {
       encoding: 'utf8',
@@ -651,10 +723,29 @@ function findSystemNodeExecutable() {
       .split(/\r?\n/)
       .map(item => item.trim())
       .filter(Boolean);
-    return candidates[0] || 'node';
+    return candidates[0] || null;
   } catch (_) {
-    return 'node';
+    return null;
   }
+}
+
+function resolveNodeRunner() {
+  const systemNodePath = findSystemNodeExecutable();
+  if (systemNodePath) {
+    return {
+      command: systemNodePath,
+      argsPrefix: [],
+      env: {}
+    };
+  }
+
+  return {
+    command: process.execPath,
+    argsPrefix: [],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1'
+    }
+  };
 }
 
 function handleCodexAppServerMessage(message) {
@@ -676,6 +767,7 @@ function handleCodexAppServerMessage(message) {
 function handleCodexBridgePayload(payload) {
   if (payload.type === 'open') {
     codexAppServerBridgeReady = true;
+    codexAppServerBridgeLastError = null;
     sendCodexAppServerStatus({ state: 'bridge-open', message: 'app-server bridge connected' });
     return;
   }
@@ -686,6 +778,7 @@ function handleCodexBridgePayload(payload) {
   }
 
   if (payload.type === 'error') {
+    codexAppServerBridgeLastError = new Error(payload.message || 'app-server bridge error');
     sendCodexAppServerStatus({ state: 'warning', message: payload.message || 'app-server bridge error' });
     return;
   }
@@ -694,6 +787,9 @@ function handleCodexBridgePayload(payload) {
     const wasInitialized = codexAppServerInitialized;
     codexAppServerInitialized = false;
     codexAppServerBridgeReady = false;
+    if (!codexAppServerBridgeLastError) {
+      codexAppServerBridgeLastError = new Error('app-server connection closed');
+    }
     rejectCodexAppServerPending(new Error('app-server connection closed'));
     if (wasInitialized) {
       sendCodexAppServerStatus({ state: 'closed', message: 'app-server connection closed' });
@@ -707,12 +803,21 @@ function startCodexAppServerBridge() {
   }
 
   const scriptPath = writeCodexAppServerBridgeScript();
-  const nodePath = findSystemNodeExecutable();
+  const nodeRunner = resolveNodeRunner();
   codexAppServerBridgeBuffer = '';
-  codexAppServerProcess = childProcess.spawn(nodePath, [scriptPath], {
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
+  codexAppServerBridgeLastError = null;
+  codexAppServerProcess = childProcess.spawn(
+    nodeRunner.command,
+    [...nodeRunner.argsPrefix, scriptPath],
+    {
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        ...nodeRunner.env
+      }
+    }
+  );
 
   codexAppServerProcess.stdout?.on('data', chunk => {
     codexAppServerBridgeBuffer += String(chunk);
@@ -734,6 +839,7 @@ function startCodexAppServerBridge() {
   codexAppServerProcess.once('error', error => {
     codexAppServerInitialized = false;
     codexAppServerBridgeReady = false;
+    codexAppServerBridgeLastError = error;
     codexAppServerConnectPromise = null;
     rejectCodexAppServerPending(error);
     sendCodexAppServerStatus({ state: 'error', message: error.message });
@@ -744,8 +850,9 @@ function startCodexAppServerBridge() {
     codexAppServerProcess = null;
     codexAppServerInitialized = false;
     codexAppServerBridgeReady = false;
+    codexAppServerBridgeLastError = new Error(`app-server bridge exited: ${code ?? signal ?? 'unknown'}`);
     codexAppServerConnectPromise = null;
-    rejectCodexAppServerPending(new Error(`app-server bridge exited: ${code ?? signal ?? 'unknown'}`));
+    rejectCodexAppServerPending(codexAppServerBridgeLastError);
     if (wasInitialized && !isAppQuitting) {
       sendCodexAppServerStatus({ state: 'closed', message: 'app-server bridge exited' });
     }
@@ -761,6 +868,11 @@ function waitForCodexBridgeOpen(timeoutMs = 15000) {
       if (codexAppServerBridgeReady) {
         clearInterval(timer);
         resolve();
+        return;
+      }
+      if (codexAppServerBridgeLastError) {
+        clearInterval(timer);
+        reject(codexAppServerBridgeLastError);
         return;
       }
       if (!codexAppServerProcess || codexAppServerProcess.killed) {
@@ -823,12 +935,13 @@ async function connectCodexAppServer() {
       sendCodexAppServerStatus({ state: 'connected', message: 'connected app-server' });
       return { connected: true, url: targetUrl, initialize: initResult };
     } catch (error) {
+      const formattedError = new Error(formatCodexAppServerConnectionError(error, targetUrl));
       codexAppServerInitialized = false;
       codexAppServerConnectPromise = null;
-      rejectCodexAppServerPending(error);
-      sendCodexAppServerStatus({ state: 'error', message: error.message });
-      closeCodexAppServerConnection(error.message);
-      throw error;
+      rejectCodexAppServerPending(formattedError);
+      sendCodexAppServerStatus({ state: 'error', message: formattedError.message });
+      closeCodexAppServerConnection(formattedError.message);
+      throw formattedError;
     }
   })();
 
@@ -1314,7 +1427,7 @@ ipcMain.on('focus-pet-window', () => {
     petWindow.showInactive();
   }
   petWindow.moveTop();
-  petWindow.setSkipTaskbar(true);
+  petWindow.focus();
 });
 
 ipcMain.on('chat-ready-for-paste', () => {
@@ -1344,9 +1457,14 @@ ipcMain.on('restart-app', () => {
   app.exit(0);
 });
 
-ipcMain.on('drag-pet-window', (event, { screenX, screenY, offsetX, offsetY }) => {
+ipcMain.on('drag-pet-window', (event, { deltaX, deltaY }) => {
   if (!petWindow || petWindow.isDestroyed()) return;
-  petWindow.setPosition(Math.round(screenX - offsetX), Math.round(screenY - offsetY));
+
+  const bounds = petWindow.getBounds();
+  petWindow.setPosition(
+    Math.round(bounds.x + deltaX),
+    Math.round(bounds.y + deltaY)
+  );
 });
 
 ipcMain.on('pet-interaction-event', (event, interaction) => {
@@ -1565,11 +1683,11 @@ ipcMain.handle('codex-control-app-server-connect', async () => {
 
 ipcMain.handle('codex-control-app-server-request', async (event, payload = {}) => {
   try {
-    await connectCodexAppServer();
     const method = String(payload.method || '').trim();
     if (!method) {
       throw new Error('缺少 app-server method');
     }
+    await connectCodexAppServer();
     const result = await codexAppServerRequest(method, payload.params || {}, payload.timeoutMs || 30000);
     return { success: true, result };
   } catch (error) {
@@ -1641,6 +1759,24 @@ ipcMain.handle('set-active-config', (event, { id }) => {
     notifyApiConfigsChanged(chatWindow);
   }
   return changed;
+});
+
+ipcMain.on('pet-window-control', (event, { action, payload }) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+
+  if (action === 'resize') {
+    const { width, height, anchor = 'bottom-left' } = payload || {};
+    const bounds = petWindow.getBounds();
+    const anchorX = anchor === 'bottom-right' ? bounds.x + bounds.width : bounds.x;
+    const anchorY = bounds.y + bounds.height;
+
+    petWindow.setBounds({
+      x: Math.round(anchor === 'bottom-right' ? anchorX - width : anchorX),
+      y: Math.round(anchorY - height),
+      width: Math.round(width),
+      height: Math.round(height)
+    });
+  }
 });
 
 // Store 相关
@@ -1790,7 +1926,19 @@ ipcMain.on('update-pet-size', (event, size) => {
   if (petWindow && !petWindow.isDestroyed()) {
     const windowSize = getPetWindowSize(size, Boolean(activeReminderId));
     const imageSize = petImageSizes[size] || petImageSizes.medium;
-    petWindow.setSize(windowSize.width, windowSize.height);
+    
+    // 使用带锚点的调整，防止跳变
+    const bounds = petWindow.getBounds();
+    const anchorX = bounds.x + bounds.width;
+    const anchorY = bounds.y + bounds.height;
+    
+    petWindow.setBounds({
+      x: Math.round(anchorX - windowSize.width),
+      y: Math.round(anchorY - windowSize.height),
+      width: Math.round(windowSize.width),
+      height: Math.round(windowSize.height)
+    });
+    
     petWindow.webContents.send('pet-size-updated', imageSize);
     sendActiveReminderToPet();
   }
@@ -1800,9 +1948,12 @@ ipcMain.on('update-pet-size', (event, size) => {
 
 // 更新聊天主题色
 ipcMain.on('update-chat-theme', (event, theme) => {
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    chatWindow.webContents.send('chat-theme-updated', theme);
-  }
+  const windows = [petWindow, chatWindow, settingsWindow];
+  windows.forEach(win => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('chat-theme-updated', theme);
+    }
+  });
 });
 
 // 更新聊天字体大小

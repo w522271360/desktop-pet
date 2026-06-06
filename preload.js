@@ -300,6 +300,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPetSizeUpdated: (callback) => {
     ipcRenderer.on('pet-size-updated', (event, size) => callback(size));
   },
+
+  controlPetWindow: (action, payload) => {
+    ipcRenderer.send('pet-window-control', { action, payload });
+  },
+
   // ========== 对话界面设置 API ==========
   
   // 更新聊天主题色
@@ -328,6 +333,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   notifyChatReadyForPaste: () => {
     ipcRenderer.send('chat-ready-for-paste');
+  },
+
+  // ========== 提醒事项 API ==========
+
+  getReminders: async () => {
+    return await ipcRenderer.invoke('get-reminders');
+  },
+
+  saveReminder: async (reminder) => {
+    return await ipcRenderer.invoke('save-reminder', { reminder });
+  },
+
+  deleteReminder: async (id) => {
+    return await ipcRenderer.invoke('delete-reminder', { id });
+  },
+
+  onRemindersChanged: (callback) => {
+    ipcRenderer.on('reminders-changed', () => callback());
   },
 
   // ========== 联网服务 API ==========
@@ -399,17 +422,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   broadcastThemeChange: (isDarkMode) => {
     ipcRenderer.send('theme-changed', isDarkMode);
   },
-  
+
   // 监听主题变化
   onThemeChanged: (callback) => {
     ipcRenderer.on('theme-changed', (event, isDarkMode) => callback(isDarkMode));
   },
-  
+
   // 移除主题变化监听
   removeThemeChangedListener: () => {
     ipcRenderer.removeAllListeners('theme-changed');
   },
-  
+
   // ========== 提示词模板相关 API ==========
   
   // 获取预设模板配置

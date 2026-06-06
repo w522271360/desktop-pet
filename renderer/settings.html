@@ -78,17 +78,25 @@
           <p class="tab-description">统一管理网页登录类插件。插件登录成功后，可在 API 配置里选择对应来源。</p>
         </div>
 
-        <div class="tab-body">
-          <div class="settings-section plugin-section">
-            <h3>DeepSeek Web</h3>
-            <div class="plugin-card">
-              <div class="plugin-card-header">
-                <div>
-                  <strong>网页登录插件</strong>
-                  <p>打开 DeepSeek 登录页，在内嵌窗口里完成登录后，再回到这里保存认证信息。</p>
+        <div class="tab-body" id="plugin-list-container">
+          <details class="plugin-details-card" id="deepseek-plugin-details" open>
+            <summary class="plugin-summary">
+              <div class="summary-content">
+                <span class="plugin-icon">🐳</span>
+                <div class="plugin-info-brief">
+                  <span class="plugin-name">DeepSeek Web</span>
+                  <span id="deepseek-plugin-status-badge" class="plugin-status-badge badge-offline">未登录</span>
                 </div>
-                <span id="deepseek-plugin-status" class="plugin-status">未登录</span>
               </div>
+              <span class="chevron">▼</span>
+            </summary>
+            
+            <div class="plugin-card-body">
+              <div class="plugin-intro">
+                <strong>网页登录插件</strong>
+                <p>打开 DeepSeek 登录页，在内嵌窗口里完成登录后，再回到这里保存认证信息。</p>
+              </div>
+              
               <div class="form-group">
                 <label>DeepSeek User Token</label>
                 <div class="password-input">
@@ -97,14 +105,16 @@
                 </div>
                 <p class="field-note">默认推荐直接用内嵌登录窗口保存；如果登录页受限，也可以手动粘贴 `userToken` 作为备用方案。</p>
               </div>
+              
               <div class="action-bar">
                 <button id="deepseek-login-btn" class="secondary-btn" type="button">打开登录页</button>
                 <button id="deepseek-save-auth-btn" class="primary-btn" type="button">保存登录信息</button>
                 <button id="deepseek-clear-auth-btn" class="secondary-btn" type="button">清除登录信息</button>
               </div>
+              
               <p class="plugin-hint">保存成功后，去 API 配置新建一条来源为「DeepSeek 插件」的配置，就不需要手填地址和 API Key 了。</p>
             </div>
-          </div>
+          </details>
         </div>
       </div>
 
@@ -359,7 +369,7 @@
                 <p class="setting-desc">选择对话窗口的强调色</p>
               </div>
               <select id="theme-select" class="setting-select">
-                <option value="shiba" selected>🌿 松石青</option>
+                <option value="shiba" selected>🐕 柴犬橙</option>
                 <option value="blue">💙 天空蓝</option>
                 <option value="purple">💜 优雅紫</option>
                 <option value="green">💚 清新绿</option>
@@ -437,7 +447,6 @@
             <input type="password" id="api-key" placeholder="sk-... 或 AIza..." required>
             <button class="toggle-password" type="button">👁️</button>
           </div>
-          <p class="field-note" id="deepseek-plugin-note">选择 DeepSeek 插件后，这两项会自动隐藏。</p>
         </div>
 
         <div class="form-group">

@@ -74,8 +74,6 @@ let allTemplates = [];
 // 智能滚动控制 - 用户手动滚动时不自动滚动
 let userScrolled = false;
 let programmaticScroll = false; // 标记是否是程序触发的滚动
-let chatInputComposing = false;
-let networkInputComposing = false;
 
 // 初始化
 async function initializeApp() {
@@ -127,6 +125,7 @@ function ensureCodexControlButton() {
   codexControlButton.title = 'Codex 操控台';
   codexControlButton.innerHTML = `
     <span class="toolbar-action-icon">⌘</span>
+    <span>操控台</span>
   `;
   codexControlButton.addEventListener('click', () => window.electronAPI.openCodexControl());
 
@@ -1575,15 +1574,6 @@ async function sendMessage(isRegenerate = false) {
     return;
   }
 
-  const selectedId = configSelect.value;
-  if (!selectedId) {
-    const msg = window.getFriendlyMessage('noConfig');
-    showStatus(msg.text, msg.type);
-    return;
-  }
-
-  const selectedConfig = apiConfigs.find(c => c.id === selectedId);
-  const isDeepSeekPlugin = selectedConfig?.sourceType === 'plugin_deepseek' || selectedConfig?.pluginId === 'deepseek';
   const agentModeEnabled = await window.electronAPI.storeGet('agentModeEnabled') === true;
 
   if (isPiAgentCommand(question)) {
@@ -1595,8 +1585,15 @@ async function sendMessage(isRegenerate = false) {
     return;
   }
 
-  if (agentModeEnabled && !isDeepSeekPlugin) {
+  if (agentModeEnabled) {
     await sendPiAgentMessage(question);
+    return;
+  }
+
+  const selectedId = configSelect.value;
+  if (!selectedId) {
+    const msg = window.getFriendlyMessage('noConfig');
+    showStatus(msg.text, msg.type);
     return;
   }
   
@@ -2215,16 +2212,8 @@ networkChatCloseBtn?.addEventListener('click', () => {
   networkChatPanel?.classList.add('collapsed');
 });
 networkChatSendBtn?.addEventListener('click', sendNetworkChat);
-networkChatInput?.addEventListener('compositionstart', () => {
-  networkInputComposing = true;
-});
-networkChatInput?.addEventListener('compositionend', () => {
-  setTimeout(() => {
-    networkInputComposing = false;
-  }, 0);
-});
 networkChatInput?.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !networkInputComposing) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendNetworkChat();
   }
@@ -2241,16 +2230,8 @@ configSelect.addEventListener('change', async () => {
   }
 });
 
-userInput.addEventListener('compositionstart', () => {
-  chatInputComposing = true;
-});
-userInput.addEventListener('compositionend', () => {
-  setTimeout(() => {
-    chatInputComposing = false;
-  }, 0);
-});
 userInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !chatInputComposing) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     sendMessage(false);
   }

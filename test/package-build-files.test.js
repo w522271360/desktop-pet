@@ -52,6 +52,14 @@ test('packages main-process helpers required at app startup', () => {
     packageJson.build.files.includes('pi-agent-service.js'),
     'Pi bridge must be included in packaged desktop builds'
   );
+  assert.equal(
+    packageJson.scripts['prepare:pi'],
+    'npm --prefix third_party/pi install --ignore-scripts && NODE_OPTIONS=--experimental-strip-types npm --prefix third_party/pi run build'
+  );
+  assert.equal(packageJson.scripts.prebuild, 'npm run prepare:pi');
+  assert.equal(packageJson.scripts['prebuild:mac'], 'npm run prepare:pi');
+  assert.equal(packageJson.scripts['prebuild:portable'], 'npm run prepare:pi');
+  assert.equal(packageJson.scripts['prebuild:all'], 'npm run prepare:pi');
   assert.ok(
     Array.isArray(packageJson.build.extraResources)
       && packageJson.build.extraResources.some((entry) => entry.from === 'third_party/pi' && entry.to === 'pi'),
@@ -83,6 +91,6 @@ test('packages main-process helpers required at app startup', () => {
   );
   assert.equal(packageJson.build.win.icon, 'assets/icon.ico');
   assert.equal(packageJson.build.mac.icon, 'assets/icon.icns');
-  assert.equal(packageJson.build.productName, 'Desktop Pet');
-  assert.equal(packageJson.productName, 'Desktop Pet');
+  assert.equal(packageJson.build.productName, '桌面小助手');
+  assert.equal(packageJson.productName, '桌面小助手');
 });

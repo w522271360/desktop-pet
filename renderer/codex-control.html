@@ -9,21 +9,15 @@
 <body>
   <main class="shell">
     <aside class="threads-pane">
-      <header class="pane-header">
-        <div>
-          <p class="eyebrow">Codex app-server</p>
-          <h1>操控台</h1>
-        </div>
-        <button id="refresh-btn" class="icon-btn" type="button" title="刷新会话">刷新</button>
-      </header>
-
-      <section id="connection-card" class="connection-card">
+      <section id="connection-card" class="connection-card compact">
         <div class="status-line">
           <span id="status-dot" class="status-dot"></span>
           <strong id="status-title">未连接</strong>
         </div>
-        <p id="status-detail">正在读取插件配置...</p>
-        <button id="connect-btn" class="primary-btn" type="button">连接</button>
+        <div class="connection-row">
+          <p id="status-detail">正在读取插件配置...</p>
+          <button id="connect-btn" class="primary-btn" type="button">重连</button>
+        </div>
       </section>
 
       <div class="list-tools">
@@ -32,13 +26,17 @@
       </div>
 
       <div id="thread-list" class="thread-list" aria-live="polite"></div>
+      <div id="thread-menu" class="thread-menu hidden" role="menu" aria-hidden="true">
+        <button type="button" data-thread-action="rename" role="menuitem">重命名</button>
+        <button type="button" data-thread-action="archive" role="menuitem">归档</button>
+      </div>
     </aside>
 
     <section class="chat-pane">
       <header class="chat-header">
-        <div>
-          <p id="thread-meta" class="eyebrow">选择项目或会话开始</p>
-          <h2 id="thread-title">轻量 Codex 控制台</h2>
+        <div class="thread-info">
+          <span id="thread-title" class="thread-title">请选择会话</span>
+          <span id="thread-meta" class="thread-meta"></span>
         </div>
         <button id="stop-btn" class="secondary-btn hidden" type="button">停止</button>
       </header>
@@ -46,24 +44,49 @@
       <div id="messages" class="messages"></div>
 
       <form id="composer" class="composer">
-        <textarea id="prompt-input" rows="2" placeholder="输入要交给 Codex 的任务..." disabled></textarea>
-        <button id="send-btn" class="primary-btn" type="submit" disabled>发送</button>
-        <div class="composer-options">
-          <label class="option-field project-field">
-            <span>项目目录</span>
-            <input id="cwd-input" list="cwd-options" placeholder="/root/project 或 C:\path\project" disabled>
-            <datalist id="cwd-options"></datalist>
-          </label>
-          <label class="option-field model-field">
-            <span>模型</span>
-            <select id="model-select" disabled>
-              <option value="">加载模型中...</option>
-            </select>
-          </label>
+        <div class="input-container-inner">
+          <textarea id="prompt-input" rows="1" placeholder="有什么我可以帮忙的？" disabled></textarea>
+
+          <div class="composer-actions">
+            <div class="project-path-tag" id="cwd-display" title="项目路径">
+              <input id="cwd-input" list="cwd-options" placeholder="项目路径..." disabled>
+              <datalist id="cwd-options"></datalist>
+            </div>
+
+            <div class="action-right">
+              <select id="model-select" class="model-select-compact" disabled title="选择模型">
+                <option value="">加载中...</option>
+              </select>
+              <select id="speed-select" class="model-select-compact speed-select-compact" disabled title="选择推理速度">
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="medium" selected>medium</option>
+                <option value="high">high</option>
+              </select>
+              <button id="send-btn" class="send-btn-pill" type="submit" disabled title="发送 (Enter)" aria-label="发送">
+                <span class="send-icon">↑</span>
+              </button>
+            </div>
+          </div>
         </div>
       </form>
     </section>
   </main>
+
+  <div id="rename-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <h3 class="modal-title">重命名会话</h3>
+      <div class="modal-input">
+        <input id="rename-input" type="text" placeholder="输入新名称...">
+      </div>
+      <div class="modal-actions">
+        <button id="rename-cancel" class="secondary-btn" type="button">取消</button>
+        <button id="rename-confirm" class="primary-btn" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="markdown-renderer.js"></script>
   <script src="codex-control.js"></script>
 </body>
 </html>

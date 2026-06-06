@@ -1,6 +1,6 @@
 {
   "name": "ai-desktop-pet",
-  "productName": "Desktop Pet",
+  "productName": "桌面小助手",
   "version": "2.2.0",
   "description": "Desktop pet assistant with chat, vision, reminders, networking, and Pi agent integration",
   "main": "main.js",
@@ -9,7 +9,13 @@
     "dev": "electron . --dev",
     "test": "node --test test/**/*.test.js",
     "server": "node pet-server.js",
+    "prepare:pi": "npm --prefix third_party/pi install --ignore-scripts && NODE_OPTIONS=--experimental-strip-types npm --prefix third_party/pi run build",
+    "prebuild": "npm run prepare:pi",
+    "prebuild:mac": "npm run prepare:pi",
+    "prebuild:portable": "npm run prepare:pi",
+    "prebuild:all": "npm run prepare:pi",
     "build": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
     "build:portable": "electron-builder --win portable",
     "build:all": "electron-builder --win --x64",
     "menu:hide": "node toggle-menu.js hide",
@@ -37,7 +43,7 @@
   },
   "build": {
     "appId": "com.king.desktop-helper",
-    "productName": "Desktop Pet",
+    "productName": "桌面小助手",
     "directories": {
       "output": "dist"
     },
@@ -116,7 +122,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Desktop Pet",
+      "shortcutName": "桌面小助手",
       "installerLanguages": [
         "zh_CN",
         "en_US"
@@ -124,7 +130,7 @@
       "language": "2052"
     },
     "portable": {
-      "artifactName": "Desktop-Pet-Portable.exe"
+      "artifactName": "桌面小助手-便携版.exe"
     }
   }
 }

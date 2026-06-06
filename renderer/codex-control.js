@@ -23,8 +23,13 @@
     selectedModel: '',
     activeTurnId: null,
     itemNodes: new Map(),
+    pendingUserMessages: [],
     resumedThreads: new Set(),
-    newThreadMode: true
+    newThreadMode: true,
+    collapsedProjects: new Set(),
+    expandedProjects: new Set(),
+    selectedSpeed: 'medium',
+    menuThreadId: null
   };
 
   const els = {
@@ -32,10 +37,10 @@
     statusTitle: document.getElementById('status-title'),
     statusDetail: document.getElementById('status-detail'),
     connectBtn: document.getElementById('connect-btn'),
-    refreshBtn: document.getElementById('refresh-btn'),
     newThreadBtn: document.getElementById('new-thread-btn'),
     threadSearch: document.getElementById('thread-search'),
     threadList: document.getElementById('thread-list'),
+    threadMenu: document.getElementById('thread-menu'),
     threadTitle: document.getElementById('thread-title'),
     threadMeta: document.getElementById('thread-meta'),
     messages: document.getElementById('messages'),
@@ -45,7 +50,12 @@
     stopBtn: document.getElementById('stop-btn'),
     cwdInput: document.getElementById('cwd-input'),
     cwdOptions: document.getElementById('cwd-options'),
-    modelSelect: document.getElementById('model-select')
+    modelSelect: document.getElementById('model-select'),
+    speedSelect: document.getElementById('speed-select'),
+    renameModal: document.getElementById('rename-modal'),
+    renameInput: document.getElementById('rename-input'),
+    renameCancel: document.getElementById('rename-cancel'),
+    renameConfirm: document.getElementById('rename-confirm')
   };
 
   function setStatus(kind, title, detail) {
@@ -56,11 +66,16 @@
   }
 
   function setBusy(isBusy) {
-    els.sendBtn.disabled = !state.connected || isBusy;
+    els.sendBtn.disabled = !state.connected;
+    els.sendBtn.classList.toggle('stopping', isBusy);
+    els.sendBtn.title = isBusy ? '停止' : '发送 (Enter)';
+    els.sendBtn.setAttribute('aria-label', isBusy ? '停止' : '发送');
+    els.sendBtn.querySelector('.send-icon').textContent = isBusy ? '■' : '↑';
     els.promptInput.disabled = !state.connected || isBusy;
     els.cwdInput.disabled = !state.connected || isBusy;
     els.modelSelect.disabled = !state.connected || isBusy;
-    els.stopBtn.classList.toggle('hidden', !isBusy);
+    els.speedSelect.disabled = !state.connected || isBusy;
+    els.stopBtn.classList.add('hidden');
   }
 
   function escapeText(value) {
@@ -73,16 +88,35 @@
     }[char]));
   }
 
-  function formatTime(value) {
-    if (!value) return '';
+  function parseTime(value) {
+    if (!value) return null;
     const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatTime(value) {
+    const date = parseTime(value);
+    if (!date) return '';
     return date.toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit'
     });
+  }
+
+  function formatRelativeTime(value) {
+    const date = parseTime(value);
+    if (!date) return '';
+    const diffSeconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+    if (diffSeconds < 60) return '刚刚';
+    const diffMinutes = Math.round(diffSeconds / 60);
+    if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} 小时前`;
+    const diffDays = Math.round(diffHours / 24);
+    if (diffDays < 30) return `${diffDays} 天前`;
+    return formatTime(value);
   }
 
   function normalizeCwd(cwd) {
@@ -123,9 +157,8 @@
     clearMessages();
     const projectName = getActiveProjectName();
     els.messages.innerHTML = `
-      <div class="empty-state">
+      <div class="new-session-state">
         <strong>我们应该在 ${escapeText(projectName)} 中构建什么？</strong>
-        <span>选择已有项目，或在下方输入一个远程工作目录；发送第一条消息时会创建新会话。</span>
       </div>
     `;
   }
@@ -177,22 +210,124 @@
       return;
     }
 
-    els.threadList.innerHTML = groupThreads(threads).map((group) => `
-      <section class="project-group">
-        <button class="project-header ${normalizeCwd(group.cwd) === normalizeCwd(state.selectedCwd) && state.newThreadMode ? 'active' : ''}" type="button" data-cwd="${escapeText(group.cwd)}">
-          <span class="project-icon">⌁</span>
-          <span class="project-name">${escapeText(group.name)}</span>
-          <span class="project-count">${group.threads.length}</span>
-        </button>
-        ${group.threads.map((thread) => `
-          <button class="thread-item ${thread.id === state.selectedThreadId ? 'active' : ''}" type="button" data-thread-id="${escapeText(thread.id)}">
-            <span class="thread-name">${escapeText(getThreadTitle(thread))}</span>
-            <span class="thread-preview">${escapeText(getThreadPreview(thread))}</span>
-            <span class="thread-time">${escapeText(formatTime(thread.updatedAt || thread.createdAt))}</span>
+    els.threadList.innerHTML = groupThreads(threads).map((group) => {
+      const cwd = normalizeCwd(group.cwd);
+      const isCollapsed = !query && state.collapsedProjects.has(cwd);
+      const isExpanded = query || state.expandedProjects.has(cwd);
+      const visibleThreads = isCollapsed ? [] : (isExpanded ? group.threads : group.threads.slice(0, 5));
+      const remainingCount = isCollapsed ? 0 : group.threads.length - visibleThreads.length;
+
+      return `
+        <section class="project-group ${isCollapsed ? 'collapsed' : ''}">
+          <button class="project-header ${cwd === normalizeCwd(state.selectedCwd) && state.newThreadMode ? 'active' : ''}" type="button" data-cwd="${escapeText(group.cwd)}" data-project-toggle="true" aria-expanded="${!isCollapsed}">
+            <span class="project-icon">${isCollapsed ? '▸' : '▾'}</span>
+            <span class="project-name">${escapeText(group.name)}</span>
           </button>
-        `).join('')}
-      </section>
-    `).join('');
+          ${visibleThreads.map((thread) => `
+            <div class="thread-row ${thread.id === state.selectedThreadId ? 'active' : ''}">
+              <button class="thread-item" type="button" data-thread-id="${escapeText(thread.id)}">
+                <span class="thread-name">${escapeText(getThreadTitle(thread))}</span>
+                <span class="thread-time">${escapeText(formatRelativeTime(thread.updatedAt || thread.createdAt))}</span>
+              </button>
+              <button class="thread-more" type="button" data-thread-menu="${escapeText(thread.id)}" aria-label="会话操作">⋯</button>
+            </div>
+          `).join('')}
+          ${remainingCount > 0 ? `
+            <button class="show-more-threads" type="button" data-cwd="${escapeText(group.cwd)}" data-project-more="true">
+              还有 ${remainingCount} 条
+            </button>
+          ` : ''}
+        </section>
+      `;
+    }).join('');
+  }
+
+  function hideThreadMenu() {
+    state.menuThreadId = null;
+    if (els.threadMenu) {
+      els.threadMenu.classList.add('hidden');
+      els.threadMenu.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function showThreadMenu(threadId, anchor) {
+    if (!els.threadMenu || !threadId || !anchor) return;
+    state.menuThreadId = threadId;
+    const paneRect = els.threadList.closest('.threads-pane')?.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    els.threadMenu.style.top = `${anchorRect.bottom - (paneRect?.top || 0) + 4}px`;
+    els.threadMenu.style.left = `${Math.max(8, anchorRect.right - (paneRect?.left || 0) - 138)}px`;
+    els.threadMenu.classList.remove('hidden');
+    els.threadMenu.setAttribute('aria-hidden', 'false');
+  }
+
+  function threadDisplayName(thread) {
+    return thread?.name || getThreadTitle(thread) || '未命名会话';
+  }
+
+  async function renameThread(threadId) {
+    const thread = state.threads.find((item) => item.id === threadId);
+    if (!thread) return;
+
+    els.renameInput.value = threadDisplayName(thread);
+    els.renameModal.classList.remove('hidden');
+    els.renameInput.focus();
+    els.renameInput.select();
+
+    const cleanup = () => {
+      els.renameModal.classList.add('hidden');
+      els.renameConfirm.onclick = null;
+      els.renameCancel.onclick = null;
+      els.renameInput.onkeydown = null;
+    };
+
+    const commit = async () => {
+      const trimmedName = els.renameInput.value.trim();
+      if (!trimmedName) {
+        cleanup();
+        return;
+      }
+      cleanup();
+      try {
+        await request('thread/name/set', { threadId, name: trimmedName });
+        if (thread) thread.name = trimmedName;
+        if (state.selectedThreadId === threadId) {
+          els.threadTitle.textContent = trimmedName;
+        }
+        renderThreads();
+        await refreshThreads(false);
+      } catch (error) {
+        addEvent(`重命名失败：${error.message}`);
+      }
+    };
+
+    els.renameConfirm.onclick = commit;
+    els.renameCancel.onclick = cleanup;
+    els.renameInput.onkeydown = (e) => {
+      if (e.key === 'Enter') commit();
+      if (e.key === 'Escape') cleanup();
+    };
+  }
+
+  async function archiveThread(threadId) {
+    const thread = state.threads.find((item) => item.id === threadId);
+    if (!window.confirm(`归档“${threadDisplayName(thread)}”？`)) return;
+    try {
+      await requestFirst(['thread/archive', 'codex/thread/archive'], { threadId, archived: true });
+      state.threads = state.threads.filter((item) => item.id !== threadId);
+      if (state.selectedThreadId === threadId) {
+        state.selectedThreadId = null;
+        state.newThreadMode = false;
+        els.threadTitle.textContent = '未选择会话';
+        els.threadMeta.textContent = '从左侧选择一个 Codex 会话，或新建会话。';
+        clearMessages();
+        renderEmptyPrompt();
+      }
+      renderThreads();
+      await refreshThreads(false);
+    } catch (error) {
+      addEvent(`归档失败：${error.message}`);
+    }
   }
 
   function renderModels() {
@@ -203,9 +338,11 @@
       return;
     }
 
-    els.modelSelect.innerHTML = state.models.map((model) => `
-      <option value="${escapeText(model.model || model.id)}">${escapeText(model.displayName || model.model || model.id)}</option>
-    `).join('');
+    els.modelSelect.innerHTML = state.models.map((model) => {
+      const value = model.model || model.id || '';
+      const label = model.displayName || value;
+      return `<option value="${escapeText(value)}">${escapeText(label)}</option>`;
+    }).join('');
 
     const defaultModel = state.models.find((model) => model.isDefault) || state.models[0];
     state.selectedModel = state.selectedModel || defaultModel?.model || defaultModel?.id || '';
@@ -214,13 +351,24 @@
 
   function clearMessages() {
     state.itemNodes.clear();
+    state.pendingUserMessages = [];
     els.messages.innerHTML = '';
+  }
+
+  function renderMessage(node, role, text, options = {}) {
+    node.dataset.rawText = text || '';
+    node.className = `message ${role}`;
+    if (!options.plainText && (role === 'agent' || role === 'event') && window.ChatMarkdown) {
+      node.classList.add('markdown-content');
+      window.ChatMarkdown.renderMarkdownInto(node, node.dataset.rawText);
+      return;
+    }
+    node.textContent = node.dataset.rawText;
   }
 
   function addMessage(role, text, id) {
     const node = document.createElement('div');
-    node.className = `message ${role}`;
-    node.textContent = text || '';
+    renderMessage(node, role, text);
     if (id) {
       state.itemNodes.set(id, node);
     }
@@ -229,19 +377,32 @@
     return node;
   }
 
-  function updateMessage(id, role, text, append) {
+  function bindPendingUserMessage(id, text) {
+    if (!id) return null;
+    const index = state.pendingUserMessages.findIndex((entry) => entry.text === text);
+    if (index === -1) return null;
+    const [entry] = state.pendingUserMessages.splice(index, 1);
+    state.itemNodes.set(id, entry.node);
+    return entry.node;
+  }
+
+  function updateMessage(id, role, text, append, options = {}) {
     if (!id) {
       addMessage(role, text);
       return;
     }
     const node = state.itemNodes.get(id) || addMessage(role, '', id);
-    node.className = `message ${role}`;
-    node.textContent = append ? `${node.textContent}${text || ''}` : (text || '');
+    const nextText = append ? `${node.dataset.rawText || ''}${text || ''}` : (text || '');
+    renderMessage(node, role, nextText, options);
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
   function addEvent(text) {
     addMessage('event', text);
+  }
+
+  function itemId(item) {
+    return item?.id || item?.itemId || item?.messageId || item?.uuid || item?.item?.id || '';
   }
 
   function inputText(content) {
@@ -254,36 +415,44 @@
   function renderItem(item) {
     if (!item || !item.type) return;
 
+    const id = itemId(item);
+
     if (item.type === 'userMessage') {
-      updateMessage(item.id, 'user', inputText(item.content), false);
+      const text = inputText(item.content);
+      const node = bindPendingUserMessage(id, text);
+      if (node) {
+        renderMessage(node, 'user', text);
+      } else {
+        updateMessage(id, 'user', text, false);
+      }
       return;
     }
 
     if (item.type === 'agentMessage') {
-      updateMessage(item.id, 'agent', item.text || '', false);
+      updateMessage(id, 'agent', item.text || '', false);
       return;
     }
 
     if (item.type === 'plan') {
-      updateMessage(item.id, 'event', `计划\n${item.text || ''}`, false);
+      updateMessage(id, 'event', `计划\n${item.text || ''}`, false);
       return;
     }
 
     if (item.type === 'commandExecution') {
       const command = Array.isArray(item.command) ? item.command.join(' ') : item.command;
-      updateMessage(item.id, 'event', `命令：${command || ''}\n${item.aggregatedOutput || item.status || ''}`, false);
+      updateMessage(id, 'event', `命令：${command || ''}\n${item.aggregatedOutput || item.status || ''}`, false, { plainText: true });
       return;
     }
 
     if (item.type === 'fileChange') {
       const count = Array.isArray(item.changes) ? item.changes.length : 0;
-      updateMessage(item.id, 'event', `文件变更：${count} 项，状态 ${item.status || 'unknown'}`, false);
+      updateMessage(id, 'event', `文件变更：${count} 项，状态 ${item.status || 'unknown'}`, false);
       return;
     }
 
     if (item.type === 'reasoning') {
       const summary = Array.isArray(item.summary) ? item.summary.join('\n') : item.summary;
-      if (summary) updateMessage(item.id, 'event', `思考摘要\n${summary}`, false);
+      if (summary) updateMessage(id, 'event', `思考摘要\n${summary}`, false);
       return;
     }
 
@@ -319,12 +488,26 @@
     return response.result;
   }
 
+  async function requestFirst(methods, params = {}, timeoutMs = 30000) {
+    let lastError = null;
+    for (const method of methods) {
+      try {
+        return await request(method, params, timeoutMs);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('请求失败');
+  }
+
   function turnOptions() {
     const cwd = normalizeCwd(els.cwdInput.value || state.selectedCwd);
     const model = els.modelSelect.value || state.selectedModel;
+    const speed = els.speedSelect.value || state.selectedSpeed;
     const options = {};
     if (cwd) options.cwd = cwd;
     if (model) options.model = model;
+    if (speed) options.modelReasoningEffort = speed;
     return options;
   }
 
@@ -332,7 +515,7 @@
     const params = message.params || {};
     if (message.method === 'item/agentMessage/delta') {
       const text = params.delta || params.text || params.chunk || '';
-      updateMessage(params.itemId || params.item?.id, 'agent', text, true);
+      updateMessage(itemId(params), 'agent', text, true);
       return;
     }
 
@@ -501,8 +684,9 @@
 
     const threadId = state.selectedThreadId;
     await ensureResumed(threadId);
-    if (els.messages.querySelector('.empty-state')) clearMessages();
-    addMessage('user', text);
+    if (els.messages.querySelector('.empty-state, .new-session-state')) clearMessages();
+    const node = addMessage('user', text);
+    state.pendingUserMessages.push({ text, node });
     els.promptInput.value = '';
     setBusy(true);
 
@@ -540,10 +724,6 @@
     connect().catch((error) => setStatus('error', '连接失败', error.message));
   });
 
-  els.refreshBtn.addEventListener('click', () => {
-    refreshThreads().catch((error) => setStatus('error', '刷新失败', error.message));
-  });
-
   els.newThreadBtn.addEventListener('click', () => {
     enterNewThreadMode(els.cwdInput.value || state.selectedCwd || uniqueCwds()[0] || '');
   });
@@ -551,15 +731,80 @@
   els.threadSearch.addEventListener('input', renderThreads);
 
   els.threadList.addEventListener('click', (event) => {
-    const projectButton = event.target.closest('[data-cwd]');
+    const moreButton = event.target.closest('[data-project-more]');
+    if (moreButton) {
+      const cwd = normalizeCwd(moreButton.dataset.cwd);
+      state.expandedProjects.add(cwd);
+      state.collapsedProjects.delete(cwd);
+      renderThreads();
+      return;
+    }
+
+    const projectButton = event.target.closest('[data-project-toggle]');
     if (projectButton) {
-      enterNewThreadMode(projectButton.dataset.cwd || '');
+      const cwd = normalizeCwd(projectButton.dataset.cwd);
+      if (state.collapsedProjects.has(cwd)) {
+        state.collapsedProjects.delete(cwd);
+      } else {
+        state.collapsedProjects.add(cwd);
+      }
+      state.selectedCwd = cwd;
+      if (state.newThreadMode) {
+        els.cwdInput.value = cwd;
+        setHeaderForNewThread();
+        renderEmptyPrompt();
+      }
+      renderThreads();
+      return;
+    }
+
+    const menuButton = event.target.closest('[data-thread-menu]');
+    if (menuButton) {
+      event.stopPropagation();
+      const threadId = menuButton.dataset.threadMenu;
+      if (state.menuThreadId === threadId && !els.threadMenu.classList.contains('hidden')) {
+        hideThreadMenu();
+      } else {
+        showThreadMenu(threadId, menuButton);
+      }
       return;
     }
 
     const threadButton = event.target.closest('[data-thread-id]');
     if (!threadButton) return;
+    hideThreadMenu();
     selectThread(threadButton.dataset.threadId);
+  });
+
+  els.threadList.addEventListener('contextmenu', (event) => {
+    const threadRow = event.target.closest('.thread-row');
+    if (!threadRow) return;
+    event.preventDefault();
+    const threadButton = threadRow.querySelector('[data-thread-id]');
+    showThreadMenu(threadButton?.dataset.threadId, threadRow.querySelector('[data-thread-menu]') || threadRow);
+  });
+
+  els.threadMenu.addEventListener('click', (event) => {
+    const actionButton = event.target.closest('[data-thread-action]');
+    if (!actionButton || !state.menuThreadId) return;
+    const threadId = state.menuThreadId;
+    hideThreadMenu();
+    if (actionButton.dataset.threadAction === 'rename') {
+      renameThread(threadId);
+      return;
+    }
+    if (actionButton.dataset.threadAction === 'archive') {
+      archiveThread(threadId);
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    if (els.threadMenu.contains(event.target) || event.target.closest('[data-thread-menu]')) return;
+    hideThreadMenu();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideThreadMenu();
   });
 
   els.cwdInput.addEventListener('input', () => {
@@ -575,8 +820,16 @@
     state.selectedModel = els.modelSelect.value;
   });
 
+  els.speedSelect.addEventListener('change', () => {
+    state.selectedSpeed = els.speedSelect.value;
+  });
+
   els.composer.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (state.activeTurnId) {
+      stopTurn().catch((error) => addEvent(`停止失败：${error.message}`));
+      return;
+    }
     sendPrompt(els.promptInput.value).catch((error) => {
       setBusy(false);
       addEvent(`发送失败：${error.message}`);
@@ -584,7 +837,7 @@
   });
 
   els.promptInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       els.composer.requestSubmit();
     }

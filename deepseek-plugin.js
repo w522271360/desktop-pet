@@ -312,8 +312,8 @@ async function readSseContent(stream) {
 function sanitizeStreamText(value) {
   return String(value || '')
     .replace(/\r\n/g, '\n')
-    .replace(/\n?FINISHED\s*$/i, '')
-    .replace(/\n?\[DONE\]\s*$/i, '')
+    .replace(/(?:^|\n+)FINISHED[^\n]*\s*$/i, '')
+    .replace(/(?:^|\n+)\[DONE\]\s*$/i, '')
     .trim();
 }
 
@@ -674,3 +674,6 @@ class DeepSeekPluginService {
 }
 
 module.exports = new DeepSeekPluginService();
+module.exports.__test = {
+  sanitizeStreamText
+};
